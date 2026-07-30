@@ -3,11 +3,12 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 const CHUNK: usize = 32 * 1024;
 
-/// Nối một SSH channel với một stream local theo cả hai chiều.
+/// Joins an SSH channel with a local stream in both directions.
 ///
-/// Dùng chung cho local forward (-L, stream là TcpStream vừa accept) và remote
-/// forward (-R, stream là TcpStream vừa connect tới dịch vụ local). Generic
-/// theo kiểu message nên dùng được cho cả channel client và server.
+/// Shared by local forward (-L, stream is the TcpStream just accepted) and
+/// remote forward (-R, stream is the TcpStream just connected to the local
+/// service). Generic over the message type so it works for both client and
+/// server channels.
 pub async fn splice<M, S>(mut channel: Channel<M>, mut stream: S) -> std::io::Result<()>
 where
     M: From<(ChannelId, ChannelMsg)> + Send + Sync + 'static,

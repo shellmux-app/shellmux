@@ -6,7 +6,7 @@ export interface TerminalTheme {
   xterm: ITheme
 }
 
-/// Theme mặc định của Shellmux — nền cùng tông với chrome của app.
+/// Shellmux's default theme — background matches the tone of the app chrome.
 const shellmuxDark: ITheme = {
   background: '#12141a',
   foreground: '#d6dae3',

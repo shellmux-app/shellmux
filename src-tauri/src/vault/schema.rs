@@ -1,5 +1,5 @@
-/// Schema khởi tạo. Mỗi lần thêm bảng thì bump `SCHEMA_VERSION` và thêm một
-/// bước migration trong `migrate()` — không sửa trực tiếp DDL cũ.
+/// Initial schema. Each time a table is added, bump `SCHEMA_VERSION` and add a
+/// migration step in `migrate()` — don't edit the old DDL directly.
 pub const SCHEMA_VERSION: i64 = 1;
 
 pub const INIT_SQL: &str = r#"

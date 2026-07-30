@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Nhóm host, lồng nhau được: `Production / eu-west / web`.
+/// A host group, nestable: `Production / eu-west / web`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Group {
@@ -13,11 +13,11 @@ pub struct Group {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AuthKind {
-    /// Dùng ssh-agent đang chạy (SSH_AUTH_SOCK).
+    /// Uses the running ssh-agent (SSH_AUTH_SOCK).
     Agent,
-    /// Private key trên đĩa, passphrase (nếu có) nằm trong keychain.
+    /// Private key on disk; its passphrase (if any) lives in the keychain.
     PrivateKey,
-    /// Password nằm trong keychain.
+    /// Password lives in the keychain.
     Password,
 }
 
@@ -39,8 +39,8 @@ impl AuthKind {
     }
 }
 
-/// Identity tách khỏi host để nhiều VPS dùng chung một key.
-/// `has_secret` là cờ hiển thị — giá trị thật nằm trong OS keychain.
+/// Identity is separate from host so multiple VPSes can share one key.
+/// `has_secret` is a display-only flag — the real value lives in the OS keychain.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Identity {
@@ -85,11 +85,11 @@ pub struct Snippet {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TunnelKind {
-    /// -L: cổng local → dịch vụ phía remote.
+    /// -L: local port → a service on the remote side.
     Local,
-    /// -R: cổng trên remote → dịch vụ phía máy mình.
+    /// -R: port on the remote → a service on our own machine.
     Remote,
-    /// -D: SOCKS5 proxy local, đích do từng kết nối tự khai.
+    /// -D: local SOCKS5 proxy, destination declared per-connection.
     Dynamic,
 }
 
@@ -118,7 +118,7 @@ pub struct TunnelSpec {
     pub host_id: String,
     pub name: String,
     pub kind: TunnelKind,
-    /// Mặc định 127.0.0.1 — muốn mở ra LAN phải sửa tay.
+    /// Defaults to 127.0.0.1 — opening it up to the LAN requires editing this by hand.
     pub bind_addr: String,
     pub bind_port: u16,
     pub target_host: String,

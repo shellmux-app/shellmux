@@ -13,9 +13,9 @@ use crate::ssh::{RemoteTarget, SshLink};
 use crate::vault::{TunnelKind, TunnelSpec};
 
 enum Transport {
-    /// -L: listener local, mỗi kết nối mở một channel direct-tcpip.
+    /// -L: local listener, each connection opens a direct-tcpip channel.
     Local { task: JoinHandle<()> },
-    /// -R: server nghe hộ, channel đi ngược về qua handler.
+    /// -R: the server listens on our behalf, the channel comes back through the handler.
     Remote {
         link: Arc<SshLink>,
         bind_addr: String,
@@ -24,8 +24,8 @@ enum Transport {
 }
 
 struct Running {
-    /// Session sở hữu tunnel. Đóng một session chỉ được dừng tunnel của chính
-    /// nó, không được đụng tới tunnel của session khác.
+    /// The session that owns the tunnel. Closing a session must only stop
+    /// that session's own tunnels, never another session's.
     session_id: String,
     transport: Transport,
 }
@@ -56,7 +56,7 @@ impl TunnelRegistry {
             .collect()
     }
 
-    /// Trả về cổng thật đang dùng — với `bind_port = 0` thì server/OS chọn hộ.
+    /// Returns the actual port in use — with `bind_port = 0` the server/OS picks it.
     pub async fn start(
         &self,
         app: AppHandle,
@@ -65,12 +65,12 @@ impl TunnelRegistry {
         spec: &TunnelSpec,
     ) -> AppResult<u16> {
         if self.running.contains_key(&spec.id) {
-            return Err(AppError::Tunnel("tunnel này đang chạy".into()));
+            return Err(AppError::Tunnel("this tunnel is already running".into()));
         }
 
         let port = match spec.kind {
-            // Local và Dynamic dùng chung một listener; khác nhau ở chỗ đích
-            // đến là cố định hay do từng kết nối SOCKS tự khai.
+            // Local and Dynamic share the same listener; they differ in whether
+            // the destination is fixed or declared per SOCKS connection.
             TunnelKind::Local | TunnelKind::Dynamic => {
                 self.start_listener(app.clone(), session_id, link, spec)
                     .await?
@@ -139,12 +139,12 @@ impl TunnelRegistry {
                 tokio::spawn(async move {
                     let mut socket = socket;
 
-                    // Dynamic: đích lấy từ bắt tay SOCKS5 của chính kết nối này.
+                    // Dynamic: the destination comes from this connection's own SOCKS5 handshake.
                     let (host, port) = if dynamic {
                         match socks::accept_connect(&mut socket).await {
                             Ok(target) => (target.host, target.port),
                             Err(e) => {
-                                log::warn!("tunnel {id}: SOCKS handshake lỗi — {e}");
+                                log::warn!("tunnel {id}: SOCKS handshake error — {e}");
                                 return;
                             }
                         }
@@ -158,9 +158,9 @@ impl TunnelRegistry {
                     {
                         Ok(channel) => channel,
                         Err(e) => {
-                            log::warn!("tunnel {id}: mở channel thất bại — {e}");
-                            // Chỉ báo OK cho client SOCKS *sau khi* channel mở
-                            // được, nếu không client tưởng đã kết nối xong.
+                            log::warn!("tunnel {id}: failed to open channel — {e}");
+                            // Only report OK to the SOCKS client *after* the channel
+                            // opens, otherwise the client would think it had already connected.
                             if dynamic {
                                 let _ = socks::reply_failure(&mut socket).await;
                             }
@@ -170,13 +170,13 @@ impl TunnelRegistry {
 
                     if dynamic {
                         if let Err(e) = socks::reply_success(&mut socket).await {
-                            log::warn!("tunnel {id}: không trả lời được SOCKS — {e}");
+                            log::warn!("tunnel {id}: failed to reply to SOCKS — {e}");
                             return;
                         }
                     }
 
                     if let Err(e) = splice(channel, socket).await {
-                        log::debug!("tunnel {id}: kết thúc — {e}");
+                        log::debug!("tunnel {id}: ended — {e}");
                     }
                 });
             }
@@ -194,7 +194,7 @@ impl TunnelRegistry {
 
     pub async fn stop(&self, app: &AppHandle, session_id: &str, tunnel_id: &str) -> AppResult<()> {
         let Some((_, running)) = self.running.remove(tunnel_id) else {
-            return Err(AppError::Tunnel("tunnel không chạy".into()));
+            return Err(AppError::Tunnel("tunnel is not running".into()));
         };
 
         match running.transport {
@@ -212,8 +212,8 @@ impl TunnelRegistry {
         Ok(())
     }
 
-    /// Dọn mọi tunnel thuộc một session khi session đó đóng — và chỉ của
-    /// session đó.
+    /// Cleans up every tunnel belonging to a session when that session
+    /// closes — and only that session's.
     pub async fn stop_for_session(&self, app: &AppHandle, session_id: &str) {
         for id in self.ids_for_session(session_id) {
             let _ = self.stop(app, session_id, &id).await;

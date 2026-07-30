@@ -12,7 +12,7 @@ import type {
 } from './types'
 
 // ------------------------------------------------------------------ base64
-// Byte terminal không phải UTF-8 hợp lệ nên IPC truyền base64 hai chiều.
+// Terminal bytes aren't valid UTF-8, so IPC transfers base64 in both directions.
 
 export function encodeBytes(bytes: Uint8Array): string {
   let binary = ''
@@ -38,7 +38,7 @@ export const vaultApi = {
   deleteGroup: (id: string) => invoke<void>('delete_group', { id }),
 
   listIdentities: () => invoke<Identity[]>('list_identities'),
-  /** `secret` chỉ đi vào keychain; không có API đọc ngược. */
+  /** `secret` only ever goes into the keychain; there is no API to read it back. */
   saveIdentity: (identity: Identity, secret?: string) =>
     invoke<Identity>('save_identity', { identity, secret: secret ?? null }),
   deleteIdentity: (id: string) => invoke<void>('delete_identity', { id }),
@@ -81,7 +81,7 @@ export const sessionApi = {
   resize: (sessionId: string, cols: number, rows: number) =>
     invoke<void>('session_resize', { sessionId, cols, rows }),
   close: (sessionId: string) => invoke<void>('session_close', { sessionId }),
-  /** Kết nối lại tại chỗ: giữ nguyên sessionId nên pane không bị dựng lại. */
+  /** Reconnects in place: keeps the same sessionId so the pane isn't rebuilt. */
   reconnect: (sessionId: string, cols: number, rows: number) =>
     invoke<SessionInfo>('session_reconnect', { sessionId, cols, rows }),
   list: () => invoke<SessionInfo[]>('session_list'),

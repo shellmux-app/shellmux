@@ -1,10 +1,10 @@
-//! Shared test fixtures. Mỗi test binary chỉ dùng một phần nên tắt cảnh báo.
+//! Shared test fixtures. Each test binary only uses part of this, so warnings are disabled.
 #![allow(dead_code)]
 
-//! SSH server chạy trong process cho các test tích hợp.
+//! In-process SSH server for the integration tests.
 //!
-//! Không có test nào cần network thật hay máy remote: mỗi test spawn một server
-//! trên 127.0.0.1 với cổng do OS chọn, dùng host key sinh ngẫu nhiên.
+//! No test needs a real network or a remote machine: each test spawns a server
+//! on 127.0.0.1 with an OS-chosen port, using a randomly generated host key.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -19,14 +19,14 @@ use tokio::net::{TcpListener, TcpStream};
 use shellmux_lib::pipe::splice;
 use shellmux_lib::vault::{AuthKind, Host, Identity, Vault};
 
-/// Server test: echo mọi byte trên session channel, và (tuỳ chọn) cho phép
-/// direct-tcpip để làm bastion hoặc đích của local forward.
+/// Test server: echoes every byte on the session channel, and (optionally) allows
+/// direct-tcpip so it can act as a bastion or as the target of a local forward.
 #[derive(Clone)]
 pub struct TestServer {
     allow_forward: bool,
-    /// russh đẩy data tới *cả* `Channel` và `Handler::data`. Channel nào đang
-    /// được splice thì `data()` phải bỏ qua, nếu không echo sẽ đè lên byte của
-    /// tunnel và phá handshake bên trong.
+    /// russh pushes data to *both* `Channel` and `Handler::data`. Whichever channel is
+    /// currently being spliced must be skipped by `data()`, otherwise the echo will
+    /// overwrite the tunnel's bytes and break the handshake inside it.
     forwarded: Arc<Mutex<HashSet<ChannelId>>>,
 }
 
@@ -49,7 +49,7 @@ impl server::Server for TestServer {
 impl server::Handler for TestServer {
     type Error = russh::Error;
 
-    /// Test kiểm tra phía client, nên server nhận mọi public key.
+    /// The test exercises the client side, so the server accepts every public key.
     async fn auth_publickey(
         &mut self,
         _user: &str,
@@ -167,8 +167,8 @@ pub async fn spawn_server(allow_forward: bool) -> RunningServer {
     RunningServer { port, fingerprint }
 }
 
-/// Vault tạm kèm một identity dùng private key không passphrase — nên đường đi
-/// auth không cần chạm keychain của máy chạy test.
+/// Temporary vault with an identity using a passphrase-less private key — so the
+/// auth path doesn't need to touch the keychain of the machine running the tests.
 pub struct VaultFixture {
     pub dir: tempfile::TempDir,
     pub vault: Arc<Vault>,
@@ -196,7 +196,7 @@ pub fn temp_vault_with_key() -> VaultFixture {
     VaultFixture { dir, vault }
 }
 
-/// Vault tạm đã có sẵn host `h1` trỏ tới `port` (host key *chưa* được tin cậy).
+/// Temporary vault that already has host `h1` pointing at `port` (host key *not yet* trusted).
 pub fn temp_vault_with_host(port: u16) -> VaultFixture {
     let fx = temp_vault_with_key();
     fx.vault.upsert_host(&host_at("h1", port, None)).unwrap();
@@ -220,7 +220,7 @@ pub fn host_at(id: &str, port: u16, jump: Option<&str>) -> Host {
     }
 }
 
-/// Đọc chunk dữ liệu đầu tiên từ một channel, có timeout để test không treo.
+/// Reads the first chunk of data from a channel, with a timeout so the test doesn't hang.
 pub async fn first_data(channel: &mut Channel<russh::client::Msg>) -> Option<Vec<u8>> {
     tokio::time::timeout(Duration::from_secs(5), async {
         while let Some(msg) = channel.wait().await {
@@ -231,5 +231,5 @@ pub async fn first_data(channel: &mut Channel<russh::client::Msg>) -> Option<Vec
         None
     })
     .await
-    .expect("timeout khi chờ dữ liệu")
+    .expect("timed out waiting for data")
 }

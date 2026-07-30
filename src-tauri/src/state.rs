@@ -5,7 +5,7 @@ use crate::sftp::SftpRegistry;
 use crate::tunnel::TunnelRegistry;
 use crate::vault::Vault;
 
-/// State toàn app, đưa vào Tauri qua `manage()`.
+/// App-wide state, registered with Tauri via `manage()`.
 pub struct AppState {
     pub vault: Arc<Vault>,
     pub sessions: Arc<SessionManager>,

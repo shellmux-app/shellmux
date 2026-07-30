@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { IconContext, SidebarSimpleIcon, XIcon } from '@phosphor-icons/react'
 
 import { HostDialog } from './components/HostDialog'
 import { HostKeyPrompt } from './components/HostKeyPrompt'
@@ -40,7 +41,7 @@ export default function App() {
   } = useWorkspace()
 
   const [screen, setScreen] = useState<ScreenId>('hosts')
-  /** Đang xem một session, hay đang xem một màn quản lý. */
+  /** Whether a session is focused, versus one of the management screens. */
   const [inSession, setInSession] = useState(false)
   const [overlay, setOverlay] = useState<Overlay>({ kind: 'none' })
   const [note, setNote] = useState<string | null>(null)
@@ -71,8 +72,8 @@ export default function App() {
   const importSshConfig = async () => {
     const path = await sshConfigApi.path().catch(() => null)
     const ok = await confirm({
-      title: 'Import từ ~/.ssh/config',
-      body: `Đọc ${path ?? '~/.ssh/config'} và tạo host tương ứng. Host đã import trước đó sẽ được cập nhật theo file, không tạo bản sao.`,
+      title: 'Import from ~/.ssh/config',
+      body: `Read ${path ?? '~/.ssh/config'} and create matching hosts. Hosts imported before will be updated in place, not duplicated.`,
       confirmLabel: 'Import',
     })
     if (!ok) return
@@ -80,12 +81,12 @@ export default function App() {
     try {
       const report = await sshConfigApi.import()
       await load()
-      const parts = [`${report.hosts} host`, `${report.identities} key`]
-      if (report.jumpsLinked > 0) parts.push(`${report.jumpsLinked} jump host`)
+      const parts = [`${report.hosts} hosts`, `${report.identities} keys`]
+      if (report.jumpsLinked > 0) parts.push(`${report.jumpsLinked} jump hosts linked`)
       if (report.unresolvedJumps.length > 0) {
-        parts.push(`jump chưa rõ: ${report.unresolvedJumps.join(', ')}`)
+        parts.push(`unresolved jumps: ${report.unresolvedJumps.join(', ')}`)
       }
-      if (report.includesSkipped > 0) parts.push(`${report.includesSkipped} Include bỏ qua`)
+      if (report.includesSkipped > 0) parts.push(`${report.includesSkipped} includes skipped`)
       setNote(parts.join(' · '))
       setScreen('hosts')
       setInSession(false)
@@ -100,101 +101,111 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <NavRail
-        active={inSession ? ('hosts' as ScreenId) : screen}
-        onSelect={goToScreen}
-        counts={{
-          hosts: hosts.length,
-          keychain: identities.length,
-          snippets: snippets.length,
-          knownHosts: 0,
-        }}
-        onImport={() => void importSshConfig()}
-      />
+    <IconContext.Provider value={{ size: 16, weight: 'regular', color: 'currentColor' }}>
+      <div className="app">
+        <NavRail
+          active={inSession ? ('hosts' as ScreenId) : screen}
+          onSelect={goToScreen}
+          counts={{
+            hosts: hosts.length,
+            keychain: identities.length,
+            snippets: snippets.length,
+            knownHosts: 0,
+          }}
+          onImport={() => void importSshConfig()}
+        />
 
-      <main className="main">
-        <nav className="tabstrip">
-          <span
-            className={`tab ${!inSession ? 'active' : ''}`}
-            onClick={() => setInSession(false)}
-          >
-            Quản lý
-          </span>
-
-          {tabs.map((tab) => (
+        <main className="main">
+          <nav className="tabstrip">
             <span
-              key={tab.id}
-              className={`tab ${inSession && tab.id === activeTabId ? 'active' : ''}`}
-              onClick={() => {
-                focusTab(tab.id)
-                setInSession(true)
-              }}
+              className={`tab ${!inSession ? 'active' : ''}`}
+              onClick={() => setInSession(false)}
             >
-              {tab.title}
-              <button
-                className="btn-quiet"
-                aria-label={`Đóng ${tab.title}`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void closeTab(tab.id)
-                  if (tabs.length <= 1) setInSession(false)
+              <SidebarSimpleIcon />
+              Manage
+            </span>
+
+            {tabs.map((tab) => (
+              <span
+                key={tab.id}
+                className={`tab ${inSession && tab.id === activeTabId ? 'active' : ''}`}
+                onClick={() => {
+                  focusTab(tab.id)
+                  setInSession(true)
                 }}
               >
-                ✕
-              </button>
-            </span>
-          ))}
-        </nav>
+                {tab.title}
+                <button
+                  className="btn-quiet"
+                  aria-label={`Close ${tab.title}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void closeTab(tab.id)
+                    if (tabs.length <= 1) setInSession(false)
+                  }}
+                >
+                  <XIcon />
+                </button>
+              </span>
+            ))}
+          </nav>
 
-        {inSession ? (
-          <Workspace
-            onOpenTunnels={(sessionId, hostId) =>
-              setOverlay({ kind: 'tunnels', sessionId, hostId })
-            }
+          {inSession ? (
+            <Workspace
+              onOpenTunnels={(sessionId, hostId) =>
+                setOverlay({ kind: 'tunnels', sessionId, hostId })
+              }
+            />
+          ) : screen === 'hosts' ? (
+            <HostsScreen
+              onConnect={(hostId) => void connect(hostId)}
+              onEditHost={(host) => setOverlay({ kind: 'host', host })}
+              onOpenLocal={() => void openLocalShell()}
+            />
+          ) : screen === 'keychain' ? (
+            <KeychainScreen />
+          ) : screen === 'snippets' ? (
+            <SnippetsScreen />
+          ) : (
+            <KnownHostsScreen />
+          )}
+        </main>
+
+        {overlay.kind === 'host' && (
+          <HostDialog
+            host={overlay.host}
+            onClose={() => setOverlay({ kind: 'none' })}
+            onConnect={(hostId) => {
+              setOverlay({ kind: 'none' })
+              void connect(hostId)
+            }}
           />
-        ) : screen === 'hosts' ? (
-          <HostsScreen
-            onConnect={(hostId) => void connect(hostId)}
-            onEditHost={(host) => setOverlay({ kind: 'host', host })}
-            onOpenLocal={() => void openLocalShell()}
-          />
-        ) : screen === 'keychain' ? (
-          <KeychainScreen />
-        ) : screen === 'snippets' ? (
-          <SnippetsScreen />
-        ) : (
-          <KnownHostsScreen />
         )}
-      </main>
+        {overlay.kind === 'tunnels' && (
+          <TunnelPanel
+            sessionId={overlay.sessionId}
+            hostId={overlay.hostId}
+            onClose={() => setOverlay({ kind: 'none' })}
+          />
+        )}
 
-      {overlay.kind === 'host' && (
-        <HostDialog host={overlay.host} onClose={() => setOverlay({ kind: 'none' })} />
-      )}
-      {overlay.kind === 'tunnels' && (
-        <TunnelPanel
-          sessionId={overlay.sessionId}
-          hostId={overlay.hostId}
-          onClose={() => setOverlay({ kind: 'none' })}
-        />
-      )}
+        <HostKeyPrompt />
+        <DialogHost />
 
-      <HostKeyPrompt />
-      <DialogHost />
+        {note && (
+          <div className="toast" role="status" onClick={() => setNote(null)}>
+            <span>{note}</span>
+            <span className="toast-dismiss">Click to dismiss</span>
+          </div>
+        )}
 
-      {note && (
-        <div className="toast" role="status" onClick={() => setNote(null)}>
-          <span>{note}</span>
-          <span className="toast-dismiss">Bấm để ẩn</span>
-        </div>
-      )}
-
-      {(error || vaultError) && (
-        <div className="toast" role="alert" onClick={clearError}>
-          <span>{error ?? vaultError}</span>
-          <span className="toast-dismiss">Bấm để ẩn</span>
-        </div>
-      )}
-    </div>
+        {(error || vaultError) && (
+          <div className="toast" role="alert" onClick={clearError}>
+            <span>{error ?? vaultError}</span>
+            <span className="toast-dismiss">Click to dismiss</span>
+          </div>
+        )}
+      </div>
+    </IconContext.Provider>
   )
 }

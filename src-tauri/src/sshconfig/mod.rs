@@ -1,7 +1,7 @@
-//! Import `~/.ssh/config` — cách nhanh nhất để onboard hàng trăm host có sẵn.
+//! Imports `~/.ssh/config` — the fastest way to onboard hundreds of existing hosts.
 //!
-//! Ý tưởng lấy từ Tabby (`tabby-electron/src/sshImporters.ts`): id của host
-//! được dẫn xuất từ alias nên import lại là cập nhật, không nhân bản.
+//! Idea borrowed from Tabby (`tabby-electron/src/sshImporters.ts`): a host's id
+//! is derived from its alias, so re-importing updates instead of duplicating.
 
 pub mod import;
 pub mod parse;

@@ -1,7 +1,8 @@
-//! Chuỗi jump host: host đích chỉ đến được qua bastion.
+//! Jump host chain: the destination host is only reachable through the bastion.
 //!
-//! Bastion mở channel direct-tcpip tới server đích; client phải dựng đúng chuỗi
-//! và giữ connection bastion sống suốt vòng đời session con.
+//! The bastion opens a direct-tcpip channel to the destination server; the client
+//! must build the chain correctly and keep the bastion connection alive for the
+//! whole lifetime of the child session.
 
 mod common;
 
@@ -16,7 +17,7 @@ struct Chain {
     vault: Arc<Vault>,
 }
 
-/// bastion (cho phép forward) → target. Cả hai host key đều đã được tin cậy.
+/// bastion (allows forwarding) → target. Both host keys are already trusted.
 async fn build_chain() -> Chain {
     let bastion = spawn_server(true).await;
     let target = spawn_server(false).await;
@@ -47,10 +48,11 @@ async fn connects_through_a_jump_host_and_keeps_the_chain_usable() {
 
     let link = connect_host(chain.vault.clone(), "target")
         .await
-        .expect("phải kết nối được qua bastion");
+        .expect("must be able to connect through the bastion");
 
-    // Mở được channel nghĩa là connection bastion vẫn sống — nếu handle của
-    // bastion bị drop thì channel direct-tcpip bên dưới đã chết theo.
+    // Being able to open a channel means the bastion connection is still alive — if
+    // the bastion's handle were dropped, the underlying direct-tcpip channel would
+    // have died with it.
     let mut channel = link.open_session().await.expect("session channel");
     channel.request_shell(true).await.expect("shell");
     channel.data(&b"via-jump\n"[..]).await.unwrap();
@@ -64,8 +66,8 @@ async fn connects_through_a_jump_host_and_keeps_the_chain_usable() {
 #[tokio::test]
 async fn jump_host_pointing_at_itself_falls_back_to_a_direct_connection() {
     let chain = build_chain().await;
-    // Cấu hình kiểu này (host tự trỏ vào chính nó) không được làm treo app
-    // bằng đệ quy vô hạn.
+    // This kind of configuration (a host pointing at itself) must not hang the app
+    // via infinite recursion.
     let bastion = chain.vault.get_host("bastion").unwrap();
     chain
         .vault
@@ -77,13 +79,13 @@ async fn jump_host_pointing_at_itself_falls_back_to_a_direct_connection() {
 
     let link = connect_host(chain.vault.clone(), "bastion").await;
 
-    assert!(link.is_ok(), "phải nối trực tiếp thay vì đệ quy");
+    assert!(link.is_ok(), "must connect directly instead of recursing");
 }
 
 #[tokio::test]
 async fn unreachable_jump_host_fails_instead_of_silently_connecting_direct() {
     let chain = build_chain().await;
-    // Bastion trỏ tới một cổng chắc chắn không ai nghe.
+    // Bastion points to a port that's certainly not being listened on.
     let bastion = chain.vault.get_host("bastion").unwrap();
     chain
         .vault
@@ -97,7 +99,7 @@ async fn unreachable_jump_host_fails_instead_of_silently_connecting_direct() {
 
     assert!(
         result.is_err(),
-        "bastion chết thì target không được coi là kết nối thành công"
+        "if the bastion is dead, the target must not be considered a successful connection"
     );
 }
 
@@ -112,7 +114,7 @@ async fn target_key_must_be_trusted_separately_from_the_bastion_key() {
     fx.vault
         .upsert_host(&host_at("target", target.port, Some("bastion")))
         .unwrap();
-    // Chỉ tin cậy bastion — mỗi tầng của chuỗi phải verify độc lập.
+    // Only trust the bastion — each layer of the chain must verify independently.
     fx.vault
         .put_known_host("127.0.0.1", bastion.port, "ssh-ed25519", &bastion.fingerprint)
         .unwrap();
@@ -124,6 +126,6 @@ async fn target_key_must_be_trusted_separately_from_the_bastion_key() {
             result,
             Err(shellmux_lib::error::AppError::HostKeyUnknown { .. })
         ),
-        "tin cậy bastion không được kéo theo tin cậy target"
+        "trusting the bastion must not imply trusting the target"
     );
 }

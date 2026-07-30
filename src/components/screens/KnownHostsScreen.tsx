@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { ArrowClockwiseIcon, MagnifyingGlassIcon, ProhibitIcon } from '@phosphor-icons/react'
 
 import { vaultApi } from '../../lib/ipc'
 import type { KnownHost } from '../../lib/types'
@@ -6,9 +7,9 @@ import { useDialog } from '../../state/useDialog'
 import { describe } from '../../state/useVault'
 
 /**
- * Danh sách host key đã tin cậy. Cần một chỗ để xem và thu hồi: khi server bị
- * cài lại, người dùng phải tự gỡ key cũ rồi xác nhận key mới, chứ app không
- * được im lặng ghi đè.
+ * List of trusted host keys. This needs a place to view and revoke entries:
+ * when a server is reinstalled, the user must remove the old key themselves
+ * and confirm the new one — the app must never silently overwrite it.
  */
 export function KnownHostsScreen() {
   const { confirm } = useDialog()
@@ -35,9 +36,9 @@ export function KnownHostsScreen() {
 
   const forget = async (entry: KnownHost) => {
     const ok = await confirm({
-      title: `Thu hồi tin cậy ${entry.host}:${entry.port}?`,
-      body: 'Lần kết nối tới đây tiếp theo sẽ hỏi lại fingerprint để bạn xác nhận.',
-      confirmLabel: 'Thu hồi',
+      title: `Revoke trust for ${entry.host}:${entry.port}?`,
+      body: 'The next connection to this host will ask you to confirm the fingerprint again.',
+      confirmLabel: 'Revoke',
       danger: true,
     })
     if (!ok) return
@@ -58,16 +59,18 @@ export function KnownHostsScreen() {
   return (
     <div className="screen">
       <div className="screen-bar">
-        <div className="screen-search">
+        <div className="screen-search standalone">
+          <MagnifyingGlassIcon className="screen-search-icon" aria-hidden />
           <input
             value={needle}
-            placeholder="Tìm theo host hoặc fingerprint"
-            aria-label="Tìm known host"
+            placeholder="Search by host or fingerprint"
+            aria-label="Search known hosts"
             onChange={(e) => setNeedle(e.target.value)}
           />
         </div>
         <button className="btn-outline" onClick={() => void load()}>
-          Tải lại
+          <ArrowClockwiseIcon />
+          Reload
         </button>
       </div>
 
@@ -92,7 +95,8 @@ export function KnownHostsScreen() {
                 <code className="row-meta">{entry.fingerprint}</code>
                 <span className="row-tools">
                   <button className="btn-quiet" onClick={() => void forget(entry)}>
-                    Thu hồi
+                    <ProhibitIcon />
+                    Revoke
                   </button>
                 </span>
               </li>
@@ -100,11 +104,11 @@ export function KnownHostsScreen() {
           </ul>
         ) : (
           <div className="placeholder">
-            <strong>{items.length === 0 ? 'Chưa tin cậy host nào' : 'Không khớp kết quả'}</strong>
+            <strong>{items.length === 0 ? 'No trusted hosts yet' : 'No matches'}</strong>
             <p>
               {items.length === 0
-                ? 'Lần đầu kết nối tới một máy chủ, Shellmux sẽ hiện fingerprint để bạn xác nhận. Sau khi tin cậy, nó xuất hiện ở đây.'
-                : 'Thử từ khoá khác.'}
+                ? 'The first time you connect to a server, Shellmux will show its fingerprint for you to confirm. Once trusted, it appears here.'
+                : 'Try a different search term.'}
             </p>
           </div>
         )}

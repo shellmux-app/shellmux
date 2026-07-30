@@ -6,7 +6,7 @@ import { decodeBytes, encodeBytes } from './ipc'
 
 describe('base64 bridge', () => {
   it('round-trips bytes that are not valid UTF-8', () => {
-    // Arrange: chuỗi escape của terminal thường có byte lẻ như 0x9b, 0xff.
+    // Arrange: terminal escape sequences often have odd bytes like 0x9b, 0xff.
     const bytes = new Uint8Array([0x1b, 0x5b, 0x41, 0x9b, 0xff, 0x00, 0x7f])
 
     // Act
@@ -29,7 +29,7 @@ describe('base64 bridge', () => {
   })
 
   it('handles payloads larger than the chunk size without blowing the stack', () => {
-    // Chunk trong encodeBytes là 0x8000; test vượt qua nhiều chunk.
+    // The chunk size in encodeBytes is 0x8000; this test crosses multiple chunks.
     const size = 0x8000 * 3 + 17
     const bytes = new Uint8Array(size)
     for (let i = 0; i < size; i += 1) bytes[i] = i % 256

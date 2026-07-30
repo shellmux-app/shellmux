@@ -12,7 +12,7 @@ use crate::error::{AppError, AppResult};
 use crate::ssh::auth::authenticate;
 use crate::vault::{Host, Vault};
 
-/// Chặn `jump_host_id` trỏ vòng tròn hoặc chuỗi dài vô lý.
+/// Guards against `jump_host_id` pointing in a circle or an absurdly long chain.
 const MAX_JUMPS: usize = 8;
 const KEEPALIVE_SECS: u64 = 30;
 
@@ -32,7 +32,7 @@ pub async fn connect_host(vault: Arc<Vault>, host_id: &str) -> AppResult<Arc<Ssh
     )))
 }
 
-/// Đệ quy nên phải box: mỗi tầng jump là một lần gọi `dial` lồng vào.
+/// Recursive, so it has to be boxed: each jump hop is a nested call to `dial`.
 fn dial(
     vault: Arc<Vault>,
     host_id: String,
@@ -67,7 +67,7 @@ fn dial(
         let (mut handle, parents) = match &host.jump_host_id {
             Some(jump_id) if jump_id != &host.id => {
                 let up = dial(vault.clone(), jump_id.clone(), depth + 1).await?;
-                // Tunnel qua jump: mở direct-tcpip rồi chạy SSH trên stream đó.
+                // Tunnel through the jump: open direct-tcpip then run SSH on that stream.
                 let channel = up
                     .handle
                     .channel_open_direct_tcpip(
@@ -103,8 +103,9 @@ fn dial(
     })
 }
 
-/// `russh` chỉ báo `UnknownKey` khi `check_server_key` trả false. Ở đây mới
-/// biết được đó là host mới hay là key đã đổi — hai tình huống cần UI khác nhau.
+/// `russh` only reports `UnknownKey` when `check_server_key` returns false.
+/// Only here do we learn whether this is a new host or a changed key — two
+/// situations that need different UI.
 fn classify(
     vault: &Arc<Vault>,
     host: &Host,

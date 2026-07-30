@@ -1,4 +1,4 @@
-//! Đường đi bảo mật quan trọng nhất: host key phải được xác nhận tường minh.
+//! The most important security path: the host key must be explicitly confirmed.
 
 mod common;
 
@@ -34,7 +34,7 @@ async fn first_connect_refuses_unknown_host_key_and_reports_the_fingerprint() {
 
     // Act
     let Err(err) = connect_host(fx.vault.clone(), "h1").await else {
-        panic!("host key chưa lưu thì phải bị từ chối");
+        panic!("an unsaved host key must be rejected");
     };
 
     // Assert
@@ -45,7 +45,7 @@ async fn first_connect_refuses_unknown_host_key_and_reports_the_fingerprint() {
             assert_eq!(fingerprint, fx.server_fingerprint);
             assert_eq!(port, fx.port);
         }
-        other => panic!("mong đợi HostKeyUnknown, nhận {other:?}"),
+        other => panic!("expected HostKeyUnknown, got {other:?}"),
     }
 }
 
@@ -58,10 +58,10 @@ async fn connect_succeeds_after_the_key_is_explicitly_trusted() {
 
     let link = connect_host(fx.vault.clone(), "h1")
         .await
-        .expect("đã tin cậy key thì phải kết nối được");
+        .expect("a trusted key must be able to connect");
 
-    // Chứng minh connection dùng được thật, không chỉ handshake xong.
-    let channel = link.open_session().await.expect("mở session channel");
+    // Prove the connection is actually usable, not just that the handshake finished.
+    let channel = link.open_session().await.expect("open session channel");
     channel
         .request_pty(true, "xterm-256color", 80, 24, 0, 0, &[])
         .await
@@ -73,28 +73,28 @@ async fn connect_succeeds_after_the_key_is_explicitly_trusted() {
 async fn changed_host_key_is_reported_as_mismatch_not_as_a_new_host() {
     let fx = fixture().await;
     fx.vault
-        .put_known_host("127.0.0.1", fx.port, "ssh-ed25519", "SHA256:mot-key-khac")
+        .put_known_host("127.0.0.1", fx.port, "ssh-ed25519", "SHA256:a-different-key")
         .unwrap();
 
     let Err(err) = connect_host(fx.vault.clone(), "h1").await else {
-        panic!("key khác với bản đã lưu phải bị chặn");
+        panic!("a key different from the saved one must be blocked");
     };
 
     match err {
         AppError::HostKeyMismatch {
             expected, actual, ..
         } => {
-            assert_eq!(expected, "SHA256:mot-key-khac");
+            assert_eq!(expected, "SHA256:a-different-key");
             assert_eq!(actual, fx.server_fingerprint);
         }
-        other => panic!("mong đợi HostKeyMismatch, nhận {other:?}"),
+        other => panic!("expected HostKeyMismatch, got {other:?}"),
     }
 }
 
 #[tokio::test]
 async fn trusting_one_port_does_not_trust_the_same_ip_on_another_port() {
     let fx = fixture().await;
-    // Fingerprint đúng nhưng gắn cho cổng khác — vẫn phải bị coi là host mới.
+    // Correct fingerprint but attached to a different port — must still be treated as a new host.
     fx.vault
         .put_known_host("127.0.0.1", fx.port + 1, "ssh-ed25519", &fx.server_fingerprint)
         .unwrap();
@@ -103,7 +103,7 @@ async fn trusting_one_port_does_not_trust_the_same_ip_on_another_port() {
 
     assert!(
         matches!(result, Err(AppError::HostKeyUnknown { .. })),
-        "known_hosts phải tính cả port"
+        "known_hosts must account for the port too"
     );
 }
 

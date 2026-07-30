@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { vaultApi } from '../lib/ipc'
 import type { Group, Host, Identity, Snippet, TunnelSpec } from '../lib/types'
 
-/** Thay/thêm một phần tử và trả về mảng mới — không sửa mảng cũ. */
+/** Replace/insert one item and return a new array — never mutate the old one. */
 function upsert<T extends { id: string }>(list: T[], item: T): T[] {
   const index = list.findIndex((entry) => entry.id === item.id)
   if (index === -1) return [...list, item]
@@ -68,7 +68,7 @@ export const useVault = create<VaultState>((set, get) => ({
 
   deleteGroup: async (id) => {
     await vaultApi.deleteGroup(id)
-    // Host thuộc nhóm bị xoá được SQLite set NULL, nên cập nhật lại phía UI.
+    // SQLite sets group_id to NULL for hosts in the deleted group, so mirror that here.
     set({
       groups: without(get().groups, id),
       hosts: get().hosts.map((h) => (h.groupId === id ? { ...h, groupId: null } : h)),
@@ -128,5 +128,5 @@ export function describe(e: unknown): string {
   if (typeof e === 'object' && e !== null && 'message' in e) {
     return String((e as { message: unknown }).message)
   }
-  return 'lỗi không rõ'
+  return 'Unknown error'
 }

@@ -1,5 +1,13 @@
 import { useState } from 'react'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import {
+  ArrowCounterClockwiseIcon,
+  CheckIcon,
+  FolderOpenIcon,
+  PencilSimpleIcon,
+  PlusIcon,
+  TrashIcon,
+} from '@phosphor-icons/react'
 
 import type { AuthKind, Identity } from '../../lib/types'
 import { describe, useVault } from '../../state/useVault'
@@ -40,15 +48,15 @@ export function KeychainScreen() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!draft.name.trim()) {
-      setError('cần đặt tên cho identity')
+      setError('identity needs a name')
       return
     }
     if (draft.authKind === 'privateKey' && !draft.privateKeyPath) {
-      setError('chọn file private key')
+      setError('select a private key file')
       return
     }
     try {
-      // secret rỗng + identity mới ⇒ gửi undefined để không tạo entry keychain trống.
+      // empty secret + new identity ⇒ send undefined so we don't create an empty keychain entry.
       await saveIdentity(draft, secret ? secret : undefined)
       reset()
       setError(null)
@@ -68,28 +76,38 @@ export function KeychainScreen() {
               <span className="row-name">{identity.name}</span>
               <span className="badge">{KIND_LABEL[identity.authKind]}</span>
               <span className="row-meta">
-                {identity.privateKeyPath ?? (identity.hasSecret ? 'Secret đã lưu trong keychain' : 'Không cần secret')}
+                {identity.privateKeyPath ?? (identity.hasSecret ? 'Secret saved in keychain' : 'No secret needed')}
               </span>
               <span className="row-tools">
                 <button
+                  className="btn-quiet"
                   onClick={() => {
                     setDraft(identity)
                     setSecret('')
                   }}
-                 className="btn-quiet">
-                  Sửa
+                >
+                  <PencilSimpleIcon />
+                  Edit
                 </button>
-                <button className="btn-quiet" onClick={() => void deleteIdentity(identity.id)}>Xoá</button>
+                <button className="btn-quiet" onClick={() => void deleteIdentity(identity.id)}>
+                  <TrashIcon />
+                  Delete
+                </button>
               </span>
             </li>
           ))}
-          {identities.length === 0 && <li className="empty">chưa có identity nào</li>}
+          {identities.length === 0 && (
+            <li className="placeholder">
+              <strong>No identities yet</strong>
+              <p>Add an identity in the form below to reuse it across multiple hosts.</p>
+            </li>
+          )}
         </ul>
 
         <form onSubmit={submit}>
           <div className="grid-2">
             <label>
-              Tên
+              Name
               <input
                 value={draft.name}
                 onChange={(e) => patch({ name: e.target.value })}
@@ -97,7 +115,7 @@ export function KeychainScreen() {
               />
             </label>
             <label>
-              Kiểu xác thực
+              Auth type
               <select
                 value={draft.authKind}
                 onChange={(e) => patch({ authKind: e.target.value as AuthKind })}
@@ -108,11 +126,11 @@ export function KeychainScreen() {
               </select>
             </label>
             <label>
-              Username (ghi đè của host)
+              Username (overrides the host's)
               <input
                 value={draft.username ?? ''}
                 onChange={(e) => patch({ username: e.target.value || null })}
-                placeholder="tuỳ chọn"
+                placeholder="optional"
               />
             </label>
             {draft.authKind === 'privateKey' && (
@@ -121,7 +139,8 @@ export function KeychainScreen() {
                 <span className="file-row">
                   <input readOnly value={draft.privateKeyPath ?? ''} placeholder="~/.ssh/id_ed25519" />
                   <button type="button" onClick={() => void pickKey()}>
-                    Chọn…
+                    <FolderOpenIcon />
+                    Choose…
                   </button>
                 </span>
               </label>
@@ -133,24 +152,30 @@ export function KeychainScreen() {
                   type="password"
                   value={secret}
                   onChange={(e) => setSecret(e.target.value)}
-                  placeholder={draft.hasSecret ? '••• đã lưu, nhập để thay' : 'lưu vào keychain'}
+                  placeholder={draft.hasSecret ? '••• saved, type to replace' : 'saved to keychain'}
                 />
               </label>
             )}
           </div>
 
           <p className="hint">
-            Secret đi thẳng vào OS keychain. Không có API nào đọc ngược ra giao diện.
+            Secrets go straight into the OS keychain. No API reads them back out to the UI.
           </p>
 
           {error && <p className="error">{error}</p>}
 
           <footer className="modal-foot">
             <button type="button" onClick={reset}>
-              Làm mới form
+              <ArrowCounterClockwiseIcon />
+              Reset form
             </button>
             <button type="submit" className="btn-primary">
-              {draft.id ? 'Cập nhật' : 'Thêm'}
+              {draft.id ? (
+                <CheckIcon />
+              ) : (
+                <PlusIcon />
+              )}
+              {draft.id ? 'Update' : 'Add'}
             </button>
           </footer>
         </form>

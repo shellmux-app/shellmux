@@ -14,8 +14,9 @@ use crate::ssh::SshLink;
 const TERM: &str = "xterm-256color";
 const OUTBOUND_BUFFER: usize = 256;
 
-/// Mở shell channel trên một connection đã auth và spawn task bơm dữ liệu
-/// hai chiều. Trả về sender để command `session_write` đẩy input vào.
+/// Opens a shell channel on an already-authenticated connection and spawns a
+/// task that pumps data both ways. Returns a sender so the `session_write`
+/// command can push input into it.
 pub async fn start(
     app: AppHandle,
     link: Arc<SshLink>,
@@ -42,7 +43,7 @@ pub async fn start(
                 generation,
             },
         );
-        // Giữ link tới cuối vòng đời session: drop sớm là đóng connection.
+        // Hold onto the link until the end of the session's lifetime: dropping it early closes the connection.
         drop(link);
     });
 
@@ -78,7 +79,7 @@ async fn pump(
                 Some(ChannelMsg::Data { ref data }) => {
                     emit_data(app, session_id, &engine, data);
                 }
-                // stderr của remote cũng đổ vào cùng một terminal.
+                // The remote's stderr also flows into the same terminal.
                 Some(ChannelMsg::ExtendedData { ref data, .. }) => {
                     emit_data(app, session_id, &engine, data);
                 }

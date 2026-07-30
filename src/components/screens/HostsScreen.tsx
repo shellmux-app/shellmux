@@ -1,4 +1,13 @@
 import { useMemo, useState } from 'react'
+import {
+  FolderPlusIcon,
+  MagnifyingGlassIcon,
+  PencilSimpleIcon,
+  PlugIcon,
+  PlusIcon,
+  TerminalIcon,
+  TrashIcon,
+} from '@phosphor-icons/react'
 
 import { badgeColor, badgeText } from '../../lib/badge'
 import type { Group, Host } from '../../lib/types'
@@ -18,9 +27,10 @@ function matches(host: Host, needle: string): boolean {
 }
 
 /**
- * Màn Hosts theo bố cục Termius: ô tìm kiếm có nút Connect, rồi hai lưới card
- * Groups và Hosts. Chọn một group là lọc xuống group đó thay vì mở cây lồng nhau
- * — với vài trăm host thì lọc nhanh hơn là bấm mở từng nhánh.
+ * Hosts screen laid out like Termius: a search box with a Connect button, then
+ * two card grids for Groups and Hosts. Selecting a group filters down to that
+ * group instead of opening a nested tree — with a few hundred hosts, filtering
+ * is faster than expanding branch by branch.
  */
 export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
   const { groups, hosts, saveGroup, deleteGroup, deleteHost } = useVault()
@@ -45,26 +55,26 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
       }))
   }, [groups, hosts, groupId, needle])
 
-  /** Enter trong ô tìm kiếm: nối luôn nếu chỉ còn đúng một kết quả. */
+  /** Enter in the search box: connect immediately if exactly one result remains. */
   const connectFirst = () => {
     if (visible.length > 0) onConnect(visible[0].id)
   }
 
   const addGroup = async () => {
     const name = await ask({
-      title: 'Nhóm mới',
-      label: 'Tên nhóm',
+      title: 'New group',
+      label: 'Group name',
       placeholder: 'Production',
-      confirmLabel: 'Tạo nhóm',
+      confirmLabel: 'Create group',
     })
     if (name) await saveGroup({ id: '', parentId: null, name, sort: 0 })
   }
 
   const removeGroup = async (group: Group) => {
     const ok = await confirm({
-      title: `Xoá nhóm ${group.name}?`,
-      body: 'Host bên trong không bị xoá, chúng chuyển về mục chưa phân nhóm.',
-      confirmLabel: 'Xoá nhóm',
+      title: `Delete group ${group.name}?`,
+      body: 'Hosts inside it are not deleted; they move to the ungrouped section.',
+      confirmLabel: 'Delete group',
       danger: true,
     })
     if (ok) {
@@ -75,9 +85,9 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
 
   const removeHost = async (host: Host) => {
     const ok = await confirm({
-      title: `Xoá ${host.label}?`,
-      body: `Xoá cấu hình kết nối tới ${host.username}@${host.hostname}. Máy chủ không bị ảnh hưởng.`,
-      confirmLabel: 'Xoá host',
+      title: `Delete ${host.label}?`,
+      body: `Delete the connection configuration for ${host.username}@${host.hostname}. The server itself is not affected.`,
+      confirmLabel: 'Delete host',
       danger: true,
     })
     if (ok) await deleteHost(host.id)
@@ -87,10 +97,11 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
     <div className="screen">
       <div className="screen-bar">
         <div className="screen-search">
+          <MagnifyingGlassIcon className="screen-search-icon" aria-hidden />
           <input
             value={needle}
-            placeholder="Tìm host, IP hoặc user"
-            aria-label="Tìm host"
+            placeholder="Search hosts, IP, or user"
+            aria-label="Search hosts"
             onChange={(e) => setNeedle(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') connectFirst()
@@ -102,18 +113,22 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
             onClick={connectFirst}
             disabled={visible.length === 0}
           >
+            <PlugIcon />
             Connect
           </button>
         </div>
 
         <button className="btn-outline" onClick={() => onEditHost(null)}>
-          Host mới
+          <PlusIcon />
+          New host
         </button>
         <button className="btn-outline" onClick={() => void addGroup()}>
-          Nhóm mới
+          <FolderPlusIcon />
+          New group
         </button>
         <button className="btn-outline" onClick={onOpenLocal}>
-          Shell local
+          <TerminalIcon />
+          Local shell
         </button>
       </div>
 
@@ -121,7 +136,7 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
         {currentGroup && (
           <div className="crumb">
             <button className="btn-quiet" onClick={() => setGroupId(null)}>
-              Tất cả host
+              All hosts
             </button>
             <span>/</span>
             <strong>{currentGroup.name}</strong>
@@ -141,7 +156,11 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
                   >
                     {badgeText(group.name)}
                   </span>
-                  <button className="card-text" onClick={() => setGroupId(group.id)}>
+                  <button
+                    className="card-text"
+                    onClick={() => setGroupId(group.id)}
+                    title={`View hosts in group ${group.name}`}
+                  >
                     <span className="card-title">{group.name}</span>
                     <span className="card-sub">
                       {count} host{count === 1 ? '' : 's'}
@@ -149,7 +168,8 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
                   </button>
                   <span className="card-actions">
                     <button className="btn-quiet" onClick={() => void removeGroup(group)}>
-                      Xoá
+                      <TrashIcon />
+                      Delete
                     </button>
                   </span>
                 </div>
@@ -159,7 +179,7 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
         )}
 
         <h2 className="section-title">
-          {currentGroup ? `Hosts trong ${currentGroup.name}` : 'Hosts'}
+          {currentGroup ? `Hosts in ${currentGroup.name}` : 'Hosts'}
         </h2>
 
         {visible.length > 0 ? (
@@ -178,20 +198,22 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
                 <button
                   className="card-text"
                   onClick={() => onConnect(host.id)}
-                  title={`Kết nối tới ${host.username}@${host.hostname}`}
+                  title={`Connect to ${host.username}@${host.hostname}`}
                 >
                   <span className="card-title">{host.label}</span>
                   <span className="card-sub">
                     ssh, {host.username}
-                    {host.jumpHostId ? ', qua jump host' : ''}
+                    {host.jumpHostId ? ', via jump host' : ''}
                   </span>
                 </button>
                 <span className="card-actions">
                   <button className="btn-quiet" onClick={() => onEditHost(host)}>
-                    Sửa
+                    <PencilSimpleIcon />
+                    Edit
                   </button>
                   <button className="btn-quiet" onClick={() => void removeHost(host)}>
-                    Xoá
+                    <TrashIcon />
+                    Delete
                   </button>
                 </span>
               </div>
@@ -199,19 +221,20 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
           </div>
         ) : hosts.length === 0 ? (
           <div className="placeholder">
-            <strong>Chưa có host nào</strong>
+            <strong>No hosts yet</strong>
             <p>
-              Thêm thủ công, hoặc nạp sẵn toàn bộ host bạn đã cấu hình trong
-              <code> ~/.ssh/config</code> bằng mục Import ở cột bên trái.
+              Add one manually, or import every host you've already configured in
+              <code> ~/.ssh/config</code> using the Import item in the left column.
             </p>
             <button className="btn-primary" onClick={() => onEditHost(null)}>
-              Thêm host đầu tiên
+              <PlusIcon />
+              Add your first host
             </button>
           </div>
         ) : (
           <div className="placeholder">
-            <strong>Không khớp host nào</strong>
-            <p>Thử từ khoá khác, hoặc xoá ô tìm kiếm để xem lại tất cả.</p>
+            <strong>No hosts match</strong>
+            <p>Try a different search term, or clear the search box to see all hosts again.</p>
           </div>
         )}
       </div>

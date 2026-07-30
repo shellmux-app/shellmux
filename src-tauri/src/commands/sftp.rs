@@ -4,7 +4,7 @@ use crate::error::AppResult;
 use crate::sftp::{self, RemoteEntry};
 use crate::state::AppState;
 
-/// SFTP bám vào connection của session SSH đang mở — không handshake lại.
+/// SFTP latches onto the open SSH session's connection — no re-handshake.
 async fn session_for(
     state: &State<'_, AppState>,
     session_id: &str,

@@ -1,13 +1,13 @@
 /* ============================================================================
    Shellmux design tokens
    ----------------------------------------------------------------------------
-   Ngôn ngữ thị giác: macOS-native. Nền có gradient dịu, panel bán trong suốt
-   xếp lớp lên nền đó, hàng và card bo góc, accent kiểu system.
+   Visual language: macOS-native. A soft gradient canvas, translucent panels
+   layered on top of it, rounded rows and cards, system-style accents.
 
-   LƯU Ý về "liquid glass": đây là *xấp xỉ bằng CSS*, không phải material của
-   Apple. `backdrop-filter` chỉ làm mờ những gì nằm trong cửa sổ app. Muốn mờ
-   thật cả desktop phía sau thì cần cửa sổ trong suốt + NSVisualEffectView ở
-   tầng Tauri (xem docs/UI.md).
+   NOTE on "liquid glass": this is a *CSS approximation*, not an Apple
+   material. `backdrop-filter` only blurs what's inside the app window. Real
+   blur of the desktop behind the window needs a transparent window +
+   NSVisualEffectView at the Tauri layer (see docs/UI.md).
    ========================================================================== */
 
 :root {
@@ -20,7 +20,7 @@
   --lh-tight: 1.25;
   --lh-body: 1.55;
 
-  /* Ba bậc bán kính có quy tắc: control, panel, dialog. */
+  /* Three radius tiers, applied consistently: control, panel, dialog. */
   --r-sm: 7px;
   --r-md: 12px;
   --r-lg: 16px;
@@ -34,25 +34,31 @@
 
   --rail-w: 208px;
   --nav-h: 46px;
+  /* Only nonzero when a real overlay titlebar is floating the traffic lights
+     over the rail (see the `[data-vibrancy='native']` block below). */
+  --titlebar-inset: 0px;
 
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* ---------------------------------------------------------------- sáng --- */
-  --canvas: #e8ecf1;
-  /* Gradient wash của nền, đúng tinh thần sidebar TablePlus: một vệt xanh lạnh
-     ở góc trên trái và một vệt xanh lục ở góc dưới phải. */
-  --canvas-wash: radial-gradient(
-      760px 520px at 0% 0%,
-      rgb(96 168 250 / 0.36),
-      transparent 68%
-    ),
-    radial-gradient(680px 520px at 4% 100%, rgb(120 226 196 / 0.34), transparent 66%),
-    radial-gradient(900px 620px at 100% 92%, rgb(150 205 255 / 0.22), transparent 60%);
+  /* --------------------------------------------------------------- light --- */
+  --canvas: #eef0f3;
+  /* Approximation for when there's no real vibrancy (browser preview). Real
+     TablePlus is very restrained here — near-white, just a hint of blue at
+     the corners, not a solid block of color. Much softer than the previous
+     version so it doesn't compete with --glass above it. */
+  --canvas-wash: radial-gradient(900px 560px at 0% 0%, rgb(120 175 250 / 0.14), transparent 62%),
+    radial-gradient(820px 560px at 100% 100%, rgb(140 215 195 / 0.12), transparent 60%);
 
-  --glass: rgb(255 255 255 / 0.62);
-  --glass-strong: rgb(255 255 255 / 0.86);
-  --glass-border: rgb(255 255 255 / 0.7);
-  --glass-blur: saturate(180%) blur(24px);
+  /* Measured directly on real hardware (macOS 26, NSVisualEffectMaterial::
+     Sidebar): light-mode vibrancy renders noticeably more washed-out than
+     dark-mode vibrancy at the same CSS alpha — that's a system characteristic,
+     not an app bug. 0.38 was still too opaque to let the real background show
+     through; pushed it down further and raised saturate to compensate for the
+     little that does come through. */
+  --glass: rgb(238 245 252 / 0.2);
+  --glass-strong: rgb(244 249 255 / 0.62);
+  --glass-border: rgb(255 255 255 / 0.8);
+  --glass-blur: saturate(240%) blur(24px);
 
   --surface: #ffffff;
   --surface-sunken: rgb(255 255 255 / 0.45);
@@ -64,7 +70,7 @@
   --text-soft: #444b53;
   --text-dim: #5e666f;
 
-  /* Accent hệ thống: xanh macOS cho lựa chọn, teal cho hành động chính. */
+  /* System accents: macOS blue for selection, teal for the primary action. */
   --select: #0a68e0;
   --select-ink: #ffffff;
   --accent: #0f766e;
@@ -81,14 +87,9 @@
 }
 
 :root[data-theme='dark'] {
-  --canvas: #0c0f14;
-  --canvas-wash: radial-gradient(
-      760px 520px at 0% 0%,
-      rgb(56 122 196 / 0.3),
-      transparent 66%
-    ),
-    radial-gradient(680px 520px at 4% 100%, rgb(30 150 130 / 0.26), transparent 64%),
-    radial-gradient(900px 620px at 100% 92%, rgb(70 130 190 / 0.16), transparent 60%);
+  --canvas: #0d0f13;
+  --canvas-wash: radial-gradient(900px 560px at 0% 0%, rgb(56 122 196 / 0.16), transparent 62%),
+    radial-gradient(820px 560px at 100% 100%, rgb(30 150 130 / 0.14), transparent 60%);
 
   --glass: rgb(28 33 41 / 0.62);
   --glass-strong: rgb(24 28 35 / 0.88);
@@ -120,7 +121,22 @@
   --shadow-dialog: 0 24px 64px rgb(0 0 0 / 0.55);
 }
 
-/* Người dùng tắt hiệu ứng trong suốt thì thay bằng nền đặc, không phải blur. */
+/* A real NSVisualEffectView sits behind the window (set by main.tsx once it
+   detects it's running inside Tauri on macOS): get out of its way, don't paint
+   a CSS gradient layer on top of it too — two stacked blur layers turn into an
+   opaque color, not glass. `--glass` keeps its usual alpha since that's the
+   panel layer floating above the vibrancy background. */
+:root[data-vibrancy='native'] {
+  --canvas: transparent;
+  --canvas-wash: none;
+  /* `trafficLightPosition` in tauri.conf.json places the red/yellow/green
+     cluster at (16, 20). An overlay titlebar means they float right over web
+     content, so the rail's first element has to reserve space for them itself
+     — otherwise the logo gets covered. */
+  --titlebar-inset: 40px;
+}
+
+/* If the user has disabled transparency effects, fall back to a solid background instead of blur. */
 @media (prefers-reduced-transparency: reduce) {
   :root {
     --glass: #ffffff;

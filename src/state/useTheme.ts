@@ -1,4 +1,7 @@
+import { invoke } from '@tauri-apps/api/core'
 import { create } from 'zustand'
+
+import { isTauriRuntime } from '../lib/env'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type ResolvedTheme = 'light' | 'dark'
@@ -18,13 +21,13 @@ interface ThemeState {
   mode: ThemeMode
   resolved: ResolvedTheme
   setMode: (mode: ThemeMode) => void
-  /** Gọi một lần lúc app khởi động; trả về hàm dọn listener. */
+  /** Call once when the app starts; returns a cleanup function for the listener. */
   init: () => () => void
 }
 
 /**
- * Chủ đề của chrome app. Mặc định theo hệ điều hành — người dùng đã chọn sáng
- * hay tối ở cấp OS thì app không nên tranh luận lại.
+ * The app chrome's theme. Defaults to the OS setting — if the user already chose light
+ * or dark at the OS level, the app shouldn't argue with that choice.
  */
 export const useTheme = create<ThemeState>((set, get) => ({
   mode: 'system',
@@ -39,6 +42,17 @@ export const useTheme = create<ThemeState>((set, get) => ({
     }
     document.documentElement.dataset.theme = resolved
     set({ mode, resolved })
+
+    // Sync the real window's appearance: the NSVisualEffectView layer reads the app's
+    // appearance to pick a light/dark tone. Without syncing, picking "light" in the app
+    // while the window stays dark would tint the glass layer the wrong color — opaque
+    // instead of translucent. `mode === 'system'` sends `null` so the window follows the
+    // OS on its own, exactly like how `systemTheme()` above resolves itself.
+    if (isTauriRuntime()) {
+      void invoke('set_window_theme', { theme: mode === 'system' ? null : mode }).catch(() => {
+        // Cosmetic — does not block the UI if changing the native appearance fails.
+      })
+    }
   },
 
   init: () => {

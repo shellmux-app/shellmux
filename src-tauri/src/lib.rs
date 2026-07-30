@@ -28,6 +28,9 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             let vault = Vault::open(&dir.join(VAULT_FILE))?;
             app.manage(AppState::new(vault));
+
+            apply_window_vibrancy(app);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -75,7 +78,44 @@ pub fn run() {
             commands::tunnel::tunnel_start,
             commands::tunnel::tunnel_stop,
             commands::tunnel::tunnel_active,
+            // window
+            commands::window::set_window_theme,
         ])
         .run(tauri::generate_context!())
-        .expect("không khởi động được Shellmux");
+        .expect("failed to start Shellmux");
+}
+
+/// A real NSVisualEffectView instead of CSS's `backdrop-filter` approximation
+/// — the only thing that can blur the actual desktop behind the window, the
+/// real TablePlus feel. Not fatal if it fails: the window still works, it
+/// just loses the glass layer.
+#[cfg(target_os = "macos")]
+fn apply_window_vibrancy(app: &tauri::App) {
+    use tauri::Manager;
+    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+
+    let Some(window) = app.get_webview_window("main") else {
+        log::warn!("could not find the main window to apply vibrancy to");
+        return;
+    };
+
+    // `Sidebar` is the material Finder/Mail/TablePlus use for navigation panels.
+    //
+    // Tried `HeaderView` for comparison (see git history) — no difference.
+    // Light-mode vibrancy renders noticeably more washed-out than dark-mode
+    // vibrancy *at every material*, measured directly on real hardware
+    // (macOS 26). That's a system characteristic of AppKit, not a bad material
+    // choice — compensated via the `--glass` token on the CSS side
+    // (tokens.css) instead of chasing another material swap.
+    if let Err(e) = apply_vibrancy(&window, NSVisualEffectMaterial::Sidebar, None, None) {
+        log::warn!("failed to apply macOS vibrancy (requires macOS 10.10+): {e}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn apply_window_vibrancy(_app: &tauri::App) {
+    // Windows/Linux: not implemented yet (see Cargo.toml). The window is still
+    // `transparent` per tauri.conf.json, but nothing draws behind it — the
+    // frontend keeps its opaque `--canvas` since `hasNativeVibrancy()` is only
+    // true on macOS.
 }

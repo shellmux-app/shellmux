@@ -23,7 +23,7 @@ export interface Pane {
 export interface Tab {
   id: string
   title: string
-  /** Split một cấp: 'row' là chia dọc theo chiều ngang, 'col' là xếp trên dưới. */
+  /** One level of split: 'row' arranges panes side by side, 'col' stacks them top to bottom. */
   direction: 'row' | 'col'
   panes: Pane[]
   activePaneId: string
@@ -31,7 +31,7 @@ export interface Tab {
 
 export interface TrackedSession extends SessionInfo {
   closedReason: string | null
-  /** Tăng mỗi lần reconnect; dùng để bỏ qua event closed đến muộn. */
+  /** Incremented on every reconnect; used to ignore late-arriving closed events. */
   generation: number
   reconnecting: boolean
 }
@@ -50,7 +50,7 @@ interface WorkspaceState {
   tabs: Tab[]
   activeTabId: string | null
   sessions: Record<string, TrackedSession>
-  /** Bật thì snippet gửi tới mọi pane đang mở, không chỉ pane active. */
+  /** When on, snippets are sent to every open pane, not just the active one. */
   broadcast: boolean
   hostKeyPrompt: HostKeyPrompt | null
   error: string | null
@@ -174,9 +174,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   /**
-   * Split tab hiện tại. Pane mới dùng *cùng* session — với SFTP thì đó là điểm
-   * chính: file browser chạy trên đúng connection của terminal, không mở
-   * connection thứ hai.
+   * Split the current tab. The new pane uses the *same* session — for SFTP this is the
+   * whole point: the file browser runs on the exact same connection as the terminal,
+   * without opening a second connection.
    */
   splitActive: async (view) => {
     const { tabs, activeTabId } = get()
@@ -230,7 +230,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     if (!pane) return
 
     const remaining = tab.panes.filter((p) => p.id !== paneId)
-    // Session chỉ được đóng khi không còn pane nào của bất kỳ tab nào dùng nó.
+    // A session is only closed once no pane in any tab is using it anymore.
     const stillUsed = get()
       .tabs.flatMap((t) => (t.id === tabId ? remaining : t.panes))
       .some((p) => p.sessionId === pane.sessionId)
@@ -272,9 +272,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   markClosed: (sessionId, reason, generation) => {
     const existing = get().sessions[sessionId]
     if (!existing) return
-    // Pump của lần kết nối trước tắt muộn hơn lần reconnect mới — event của nó
-    // mang generation cũ và phải bị bỏ qua, nếu không session vừa sống lại sẽ
-    // bị đánh dấu là đã chết.
+    // The previous connection's pump shuts down later than the new reconnect — its event
+    // carries the old generation and must be ignored, otherwise the session that just
+    // came back to life would get marked as dead.
     if (generation < existing.generation) return
     set({
       sessions: {

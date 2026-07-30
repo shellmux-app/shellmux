@@ -1,10 +1,11 @@
 /**
- * Badge chữ thay cho icon, đúng cách TablePlus phân biệt kết nối (`Re`, `Pg`,
- * `Sl`). Màu suy ra từ tên nên mỗi host luôn giữ đúng một màu qua các lần mở,
- * và người dùng nhận ra host bằng màu trước khi đọc chữ.
+ * Text badges instead of icons, the way TablePlus tells connections apart
+ * (`Re`, `Pg`, `Sl`). Color is derived from the name, so a given host keeps
+ * the same color across sessions and users recognize it by color before
+ * they read the text.
  */
 
-const PALETTE = [
+export const PALETTE = [
   '#e0663b',
   '#2f7fe6',
   '#0f9d76',
@@ -27,7 +28,7 @@ export function badgeColor(seed: string): string {
   return PALETTE[hash(seed) % PALETTE.length]
 }
 
-/** Tối đa 2 ký tự: chữ đầu của hai từ đầu, hoặc hai ký tự đầu. */
+/** At most 2 characters: first letter of the first two words, or the first two letters. */
 export function badgeText(label: string): string {
   const words = label
     .split(/[\s._\-/]+/)

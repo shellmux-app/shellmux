@@ -1,90 +1,102 @@
-# Học từ Tabby
+# Lessons from Tabby
 
-[Tabby](https://github.com/Eugeny/tabby) (MIT, Electron + Angular) là terminal /
-SSH client mã nguồn mở trưởng thành nhất trong cùng hạng mục. Bản clone của nó
-nằm ở `docs/tabby` (đã cho vào `.gitignore`) và được index bằng GitNexus để tra
-cứu bằng đồ thị lời gọi thay vì grep.
+[Tabby](https://github.com/Eugeny/tabby) (MIT, Electron + Angular) is the
+most mature open-source terminal/SSH client in this category. A clone of
+it lives at `docs/tabby` (already added to `.gitignore`) and is indexed
+with GitNexus so it can be looked up via the call graph instead of grep.
 
-**Về license:** Tabby là MIT. Tài liệu này ghi lại *ý tưởng thiết kế*, không
-copy code — Shellmux viết bằng Rust nên không có dòng nào bê nguyên. Nếu sau này
-có port code thật từ Tabby thì phải giữ nguyên copyright notice của họ.
+**On the license:** Tabby is MIT. This document records *design ideas*,
+not copied code — Shellmux is written in Rust, so no line is carried over
+verbatim. If actual code is ever ported from Tabby, their copyright notice
+must be preserved.
 
-## Đã áp dụng
+## Already applied
 
-| Ý tưởng của Tabby | Nguồn trong repo Tabby | Bản Shellmux |
+| Tabby idea | Source in the Tabby repo | Shellmux version |
 | --- | --- | --- |
-| Import `~/.ssh/config`, id host dẫn xuất từ alias nên import lại là cập nhật | `tabby-electron/src/sshImporters.ts` | `src-tauri/src/sshconfig/` |
-| Dynamic forward chạy SOCKS5 rồi mở channel theo đích client khai | `tabby-ssh/src/session/forwards.ts` | `src-tauri/src/socks.rs` + `tunnel.rs` |
-| Reconnect tại chỗ, "nhấn phím bất kỳ để kết nối lại" | `tabby-terminal/src/api/connectableTerminalTab.component.ts` | `session_reconnect` + `TerminalView` |
+| Import `~/.ssh/config`, host id derived from the alias so re-importing is an update | `tabby-electron/src/sshImporters.ts` | `src-tauri/src/sshconfig/` |
+| Dynamic forward runs SOCKS5 then opens a channel to whatever destination the client requests | `tabby-ssh/src/session/forwards.ts` | `src-tauri/src/socks.rs` + `tunnel.rs` |
+| In-place reconnect, "press any key to reconnect" | `tabby-terminal/src/api/connectableTerminalTab.component.ts` | `session_reconnect` + `TerminalView` |
 
-Ba điểm đáng ghi lại vì chúng không hiển nhiên:
+Three points worth recording because they aren't obvious:
 
-1. **Thứ tự trong `ssh_config` là "giá trị đầu tiên thắng"**, không phải cuối
-   cùng. `Host *` đặt ở đầu file sẽ đè mọi khối phía dưới — đó là lý do
-   `ssh_config(5)` bảo để nó ở cuối. Parser của Shellmux theo đúng ngữ nghĩa
-   này và có test riêng cho nó.
-2. **Chỉ trả lời SOCKS "thành công" sau khi channel SSH đã mở được.** Trả lời
-   sớm thì client tưởng đã kết nối trong khi phía kia có thể từ chối.
-3. **Reconnect phải giữ nguyên session id.** Tabby thay session bên dưới mà
-   không dựng lại frontend, nhờ đó scrollback còn nguyên. Shellmux làm tương tự
-   và thêm `generation` để event `closed` đến muộn của lần kết nối trước không
-   đánh dấu nhầm session vừa sống lại.
+1. **Order in `ssh_config` is "first value wins,"** not last. A `Host *`
+   placed at the top of the file overrides every block below it — that's
+   why `ssh_config(5)` says to put it at the end. Shellmux's parser
+   follows this exact semantics and has a dedicated test for it.
+2. **Only reply SOCKS "success" once the SSH channel has actually
+   opened.** Replying early makes the client think it's connected while
+   the other end might still refuse.
+3. **Reconnect must keep the same session id.** Tabby swaps out the
+   underlying session without rebuilding the frontend, so scrollback
+   stays intact. Shellmux does the same and adds a `generation` counter
+   so a late `closed` event from the previous connection doesn't
+   mistakenly mark the just-revived session as dead.
 
-## Chưa áp dụng — xếp theo giá trị
+## Not yet applied — ranked by value
 
-### 1. Multiplex connection giữa nhiều tab (giá trị cao)
+### 1. Multiplexing connections across multiple tabs (high value)
 
-`tabby-ssh/src/services/sshMultiplexer.service.ts` gom session theo khoá
-`host:port:user:proxy` **cộng với khoá của cả chuỗi jump**. Mở 5 tab tới cùng
-một VPS thì chỉ tốn một TCP và một handshake.
+`tabby-ssh/src/services/sshMultiplexer.service.ts` groups sessions by the
+key `host:port:user:proxy` **plus the key of the entire jump chain**.
+Opening 5 tabs to the same VPS then costs only one TCP connection and one
+handshake.
 
-Shellmux hiện mở một connection cho mỗi session. Kiến trúc đã sẵn sàng (một
-connection mang nhiều channel), việc còn lại là:
+Shellmux currently opens one connection per session. The architecture is
+already ready for this (one connection carries multiple channels); what's
+left is:
 
-- pool `DashMap<MultiplexKey, Weak<SshLink>>` trong `SessionManager`
-- đếm tham chiếu: chỉ `disconnect()` khi pane cuối cùng dùng link đó đóng
-- khoá phải bao gồm chuỗi jump, nếu không hai host khác bastion sẽ dùng nhầm nhau
+- a `DashMap<MultiplexKey, Weak<SshLink>>` pool in `SessionManager`
+- reference counting: only call `disconnect()` once the last pane using
+  that link closes
+- the key must include the jump chain, otherwise two hosts behind
+  different bastions would end up wrongly sharing a link
 
-Rủi ro cần xử lý: một session rớt thì các session dùng chung phải cùng biết.
+Risk to handle: if one session drops, every session sharing that link
+needs to find out.
 
 ### 2. Login script / auto-sudo
 
-`tabby-auto-sudo-password` và input script của Tabby: chờ một pattern trong
-output rồi gửi chuỗi trả lời. Cực hữu ích cho `sudo` và banner đăng nhập.
-Với Shellmux thì đây là một bộ quy tắc `(regex, phản hồi)` chạy trong pump ở
-`session/shell.rs`.
+Tabby's `tabby-auto-sudo-password` and input scripts: wait for a pattern
+in the output, then send a reply string. Extremely useful for `sudo` and
+login banners. For Shellmux this would be a set of `(regex, response)`
+rules running in the pump in `session/shell.rs`.
 
-### 3. Khôi phục tab sau khi khởi động lại
+### 3. Restoring tabs after a restart
 
-`tabby-core/src/services/tabRecovery.service.ts` lưu "recovery token" cho từng
-tab rồi dựng lại toàn bộ layout khi mở app. Shellmux mất sạch tab khi đóng app.
+`tabby-core/src/services/tabRecovery.service.ts` saves a "recovery token"
+for each tab and rebuilds the whole layout when the app opens. Shellmux
+currently loses all tabs when the app closes.
 
-### 4. Keyboard-interactive có giao diện riêng
+### 4. Dedicated keyboard-interactive UI
 
-`tabby-ssh/src/components/keyboardInteractiveAuthPanel.component.ts` hiện đúng
-prompt của server (kể cả OTP/2FA). Shellmux đang tự trả lời mọi prompt bằng
-password đã lưu — sai với server bật 2FA.
+`tabby-ssh/src/components/keyboardInteractiveAuthPanel.component.ts`
+shows the server's actual prompt (including OTP/2FA). Shellmux currently
+auto-answers every prompt with the stored password — which is wrong for a
+server with 2FA enabled.
 
 ### 5. Nested split
 
-Tabby cho tách pane lồng nhau tuỳ ý; Shellmux mới có một cấp.
+Tabby allows splitting panes with arbitrary nesting; Shellmux currently
+supports only one level.
 
-### 6. Hệ thống hotkey
+### 6. Hotkey system
 
-`tabby-core/src/services/hotkeys.service.ts` — phím tắt cấu hình được cho mọi
-hành động. Shellmux mới có ⌘F.
+`tabby-core/src/services/hotkeys.service.ts` — configurable shortcuts for
+every action. Shellmux currently only has ⌘F.
 
-### 7. Transport ngoài SSH
+### 7. Transports beyond SSH
 
-`tabby-serial`, `tabby-telnet` cho thấy cách trừu tượng hoá transport để thêm
-serial/telnet mà không đụng tầng terminal. Đáng tham khảo trước khi thêm
-Docker/Kubernetes exec ở Phase 3.
+`tabby-serial` and `tabby-telnet` show how to abstract the transport layer
+to add serial/telnet without touching the terminal layer. Worth reviewing
+before adding Docker/Kubernetes exec in Phase 3.
 
-## Cách tra cứu lại
+## How to look things up again
 
 ```bash
-npx gitnexus analyze   # nếu index báo cũ
+npx gitnexus analyze   # if the index reports as stale
 ```
 
-Rồi dùng MCP: `query({query: "...", repo: "tabby"})` để tìm luồng thực thi,
-`context({name: "SymbolName", repo: "tabby"})` để xem ai gọi ai.
+Then use MCP: `query({query: "...", repo: "tabby"})` to find execution
+flows, `context({name: "SymbolName", repo: "tabby"})` to see who calls
+what.

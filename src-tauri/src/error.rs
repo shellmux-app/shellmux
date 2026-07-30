@@ -1,13 +1,13 @@
 use serde::Serialize;
 
-/// Lỗi trả về frontend. Biến thể có dữ liệu kèm theo (host key) để UI hiện
-/// modal xác nhận thay vì chỉ show một chuỗi text.
+/// Error returned to the frontend. Variants carry extra data (host key) so
+/// the UI can show a confirmation modal instead of just a text string.
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
-    #[error("không tìm thấy {kind} với id {id}")]
+    #[error("{kind} with id {id} not found")]
     NotFound { kind: &'static str, id: String },
 
-    #[error("host key của {host}:{port} chưa được tin cậy")]
+    #[error("host key for {host}:{port} is not trusted")]
     HostKeyUnknown {
         host: String,
         port: u16,
@@ -15,7 +15,7 @@ pub enum AppError {
         algo: String,
     },
 
-    #[error("host key của {host}:{port} đã thay đổi — có thể là MITM")]
+    #[error("host key for {host}:{port} has changed — possible MITM")]
     HostKeyMismatch {
         host: String,
         port: u16,
@@ -23,13 +23,13 @@ pub enum AppError {
         actual: String,
     },
 
-    #[error("xác thực thất bại: {0}")]
+    #[error("authentication failed: {0}")]
     Auth(String),
 
-    #[error("chuỗi jump host quá dài (tối đa {max} tầng)")]
+    #[error("jump host chain too long (max {max} hops)")]
     JumpChainTooDeep { max: usize },
 
-    #[error("session {0} không tồn tại")]
+    #[error("session {0} does not exist")]
     NoSession(String),
 
     #[error("ssh: {0}")]
@@ -59,8 +59,8 @@ pub enum AppError {
 
 pub type AppResult<T> = Result<T, AppError>;
 
-/// Tauri cần lỗi serialize được. Dùng dạng tagged để frontend `switch` trên
-/// `kind` và đọc field phụ.
+/// Tauri requires errors to be serializable. Uses a tagged shape so the
+/// frontend can `switch` on `kind` and read the extra field.
 impl Serialize for AppError {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;

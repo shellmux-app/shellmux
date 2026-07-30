@@ -1,4 +1,12 @@
 import { useEffect, useState } from 'react'
+import {
+  PencilSimpleIcon,
+  PlayIcon,
+  PlusIcon,
+  StopIcon,
+  TrashIcon,
+  XIcon,
+} from '@phosphor-icons/react'
 
 import { onTunnelState } from '../lib/bus'
 import { tunnelApi } from '../lib/ipc'
@@ -17,7 +25,7 @@ function emptySpec(hostId: string): TunnelSpec {
     hostId,
     name: '',
     kind: 'local',
-    // Bind loopback theo mặc định — mở ra LAN phải sửa tay.
+    // Bind to loopback by default — opening it up to the LAN requires a manual edit.
     bindAddr: '127.0.0.1',
     bindPort: 8080,
     targetHost: '127.0.0.1',
@@ -63,10 +71,10 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
     try {
       if (active.includes(spec.id)) {
         await tunnelApi.stop(sessionId, spec.id)
-        setStatus(`đã dừng ${spec.name}`)
+        setStatus(`stopped ${spec.name}`)
       } else {
         const port = await tunnelApi.start(sessionId, spec.id)
-        setStatus(`${spec.name} đang chạy trên cổng ${port}`)
+        setStatus(`${spec.name} is running on port ${port}`)
       }
     } catch (err) {
       setStatus(describe(err))
@@ -75,7 +83,7 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
 
   const describeSpec = (spec: TunnelSpec) => {
     if (spec.kind === 'dynamic') {
-      return `SOCKS5 ${spec.bindAddr}:${spec.bindPort} → đích tuỳ từng kết nối`
+      return `SOCKS5 ${spec.bindAddr}:${spec.bindPort} → destination set per connection`
     }
     if (spec.kind === 'local') {
       return `${spec.bindAddr}:${spec.bindPort} → ${spec.targetHost}:${spec.targetPort} (remote)`
@@ -96,24 +104,40 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
               <code className="row-meta">{describeSpec(spec)}</code>
               <span className="row-tools">
                 <button className="btn-primary" onClick={() => void toggle(spec)}>
-                  {active.includes(spec.id) ? 'Stop' : 'Start'}
+                  {active.includes(spec.id) ? (
+                    <>
+                      <StopIcon weight="fill" />
+                      Stop
+                    </>
+                  ) : (
+                    <>
+                      <PlayIcon weight="fill" />
+                      Start
+                    </>
+                  )}
                 </button>
-                <button className="btn-quiet" onClick={() => setDraft(spec)}>Sửa</button>
-                <button className="btn-quiet" onClick={() => void deleteTunnel(spec.id)}>Xoá</button>
+                <button className="btn-quiet" onClick={() => setDraft(spec)}>
+                  <PencilSimpleIcon />
+                  Edit
+                </button>
+                <button className="btn-quiet" onClick={() => void deleteTunnel(spec.id)}>
+                  <TrashIcon />
+                  Delete
+                </button>
               </span>
             </li>
           ))}
-          {mine.length === 0 && <li className="placeholder"><strong>Host này chưa có tunnel</strong><p>Thêm một tunnel ở form bên dưới rồi bấm Start khi cần.</p></li>}
+          {mine.length === 0 && <li className="placeholder"><strong>This host has no tunnels yet</strong><p>Add a tunnel in the form below, then click Start when you need it.</p></li>}
         </ul>
 
         <form onSubmit={submit}>
           <div className="grid-2">
             <label>
-              Tên
+              Name
               <input value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
             </label>
             <label>
-              Kiểu
+              Type
               <select
                 value={draft.kind}
                 onChange={(e) => patch({ kind: e.target.value as TunnelKind })}
@@ -140,7 +164,7 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
                 onChange={(e) => patch({ bindPort: Number(e.target.value) || 0 })}
               />
             </label>
-            {/* Dynamic không có đích cố định — mỗi kết nối SOCKS tự khai đích. */}
+            {/* Dynamic has no fixed destination — each SOCKS connection declares its own destination. */}
             {draft.kind !== 'dynamic' && (
               <>
                 <label>
@@ -168,10 +192,18 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
 
           <footer className="modal-foot">
             <button type="button" onClick={onClose}>
-              Đóng
+              <XIcon />
+              Close
             </button>
             <button type="submit" className="btn-primary">
-              {draft.id ? 'Cập nhật' : 'Thêm tunnel'}
+              {draft.id ? (
+                'Update'
+              ) : (
+                <>
+                  <PlusIcon />
+                  Add tunnel
+                </>
+              )}
             </button>
           </footer>
         </form>

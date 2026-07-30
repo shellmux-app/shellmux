@@ -16,7 +16,7 @@ function resetStore() {
   })
 }
 
-/** invoke giả: ssh_connect trả session, các command khác trả undefined. */
+/** Fake invoke: ssh_connect returns a session, other commands return undefined. */
 function mockConnect(sessionId: string, label = 'web-01') {
   invoke.mockImplementation((cmd: string) => {
     if (cmd === 'ssh_connect') {
@@ -32,7 +32,7 @@ beforeEach(() => {
 })
 
 describe('openSsh', () => {
-  it('mở tab mới với đúng một pane terminal', async () => {
+  it('opens a new tab with exactly one terminal pane', async () => {
     mockConnect('s1')
 
     await useWorkspace.getState().openSsh('h1')
@@ -45,9 +45,9 @@ describe('openSsh', () => {
     expect(sessions.s1.closedReason).toBeNull()
   })
 
-  it('không tạo tab khi host key chưa được tin cậy, mà bật prompt', async () => {
+  it('does not create a tab when the host key is not yet trusted, and shows the prompt instead', async () => {
     invoke.mockRejectedValue({
-      message: 'host key chưa được tin cậy',
+      message: 'host key not yet trusted',
       kind: 'hostKeyUnknown',
       data: { host: '10.0.0.5', port: 22, fingerprint: 'SHA256:abc', algo: 'ssh-ed25519' },
     })
@@ -63,9 +63,9 @@ describe('openSsh', () => {
     })
   })
 
-  it('phân biệt key đổi với host mới', async () => {
+  it('distinguishes a changed key from a new host', async () => {
     invoke.mockRejectedValue({
-      message: 'host key đã thay đổi',
+      message: 'host key has changed',
       kind: 'hostKeyMismatch',
       data: { host: '10.0.0.5', port: 22, expected: 'SHA256:old', actual: 'SHA256:new' },
     })
@@ -79,7 +79,7 @@ describe('openSsh', () => {
     })
   })
 
-  it('lỗi thường thì hiện thông báo, không hiện prompt host key', async () => {
+  it('shows a message for a generic error, not the host key prompt', async () => {
     invoke.mockRejectedValue({ message: 'connection refused', kind: 'generic', data: null })
 
     await useWorkspace.getState().openSsh('h1')
@@ -90,7 +90,7 @@ describe('openSsh', () => {
 })
 
 describe('split panes', () => {
-  it('pane SFTP mới dùng lại đúng session của pane đang focus', async () => {
+  it('new SFTP pane reuses the exact session of the currently focused pane', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
 
@@ -99,12 +99,12 @@ describe('split panes', () => {
     const tab = useWorkspace.getState().tabs[0]
     expect(tab.panes).toHaveLength(2)
     expect(tab.panes[1].view).toBe('sftp')
-    // Điểm cốt lõi: cùng session ⇒ SFTP không mở connection SSH thứ hai.
+    // Core point: same session ⇒ SFTP does not open a second SSH connection.
     expect(tab.panes[1].sessionId).toBe('s1')
     expect(tab.activePaneId).toBe(tab.panes[1].id)
   })
 
-  it('đóng một pane của session đang được pane khác dùng thì không đóng session', async () => {
+  it('closing one pane of a session still used by another pane does not close the session', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
     await useWorkspace.getState().splitActive('sftp')
@@ -117,7 +117,7 @@ describe('split panes', () => {
     expect(useWorkspace.getState().tabs[0].panes).toHaveLength(1)
   })
 
-  it('đóng pane cuối cùng thì đóng session và bỏ tab', async () => {
+  it('closing the last pane closes the session and drops the tab', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
     const tab = useWorkspace.getState().tabs[0]
@@ -133,7 +133,7 @@ describe('split panes', () => {
 })
 
 describe('activeSessionIds', () => {
-  it('mặc định chỉ trả session của pane đang focus', async () => {
+  it('by default returns only the session of the focused pane', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
     mockConnect('s2')
@@ -142,10 +142,10 @@ describe('activeSessionIds', () => {
     expect(useWorkspace.getState().activeSessionIds()).toEqual(['s2'])
   })
 
-  it('bật broadcast thì trả mọi session, không trùng lặp', async () => {
+  it('with broadcast on, returns every session with no duplicates', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
-    await useWorkspace.getState().splitActive('sftp') // cùng s1
+    await useWorkspace.getState().splitActive('sftp') // same s1
     mockConnect('s2')
     await useWorkspace.getState().openSsh('h2')
     useWorkspace.getState().setBroadcast(true)
@@ -157,7 +157,7 @@ describe('activeSessionIds', () => {
 })
 
 describe('markClosed', () => {
-  it('ghi lý do đóng lên session đang theo dõi', async () => {
+  it('records the close reason on the tracked session', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
 
@@ -166,18 +166,18 @@ describe('markClosed', () => {
     expect(useWorkspace.getState().sessions.s1.closedReason).toBe('exit status 0')
   })
 
-  it('bỏ qua session không tồn tại thay vì tạo entry rỗng', () => {
-    useWorkspace.getState().markClosed('không-có', 'eof', 0)
+  it('ignores a nonexistent session instead of creating an empty entry', () => {
+    useWorkspace.getState().markClosed('nonexistent', 'eof', 0)
 
     expect(useWorkspace.getState().sessions).toEqual({})
   })
 
-  it('bỏ qua event closed đến muộn từ lần kết nối trước', async () => {
+  it('ignores a closed event arriving late from a previous connection', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
     await useWorkspace.getState().reconnect('s1', 80, 24)
 
-    // Pump của generation 0 tắt muộn và mới phát event bây giờ.
+    // Generation 0's pump shut down late and only now fires its event.
     useWorkspace.getState().markClosed('s1', 'eof', 0)
 
     expect(useWorkspace.getState().sessions.s1.closedReason).toBeNull()
@@ -185,7 +185,7 @@ describe('markClosed', () => {
 })
 
 describe('reconnect', () => {
-  it('xoá trạng thái đã đóng và tăng generation', async () => {
+  it('clears the closed state and increments the generation', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
     useWorkspace.getState().markClosed('s1', 'eof', 0)
@@ -203,7 +203,7 @@ describe('reconnect', () => {
     })
   })
 
-  it('giữ nguyên session id để pane không phải dựng lại', async () => {
+  it('keeps the same session id so the pane does not have to be rebuilt', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
     const paneBefore = useWorkspace.getState().tabs[0].panes[0]
@@ -215,7 +215,7 @@ describe('reconnect', () => {
     expect(paneAfter.sessionId).toBe('s1')
   })
 
-  it('báo lỗi và thôi cờ reconnecting khi kết nối lại thất bại', async () => {
+  it('reports the error and clears the reconnecting flag when reconnecting fails', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
     invoke.mockRejectedValue({ message: 'connection refused', kind: 'generic', data: null })

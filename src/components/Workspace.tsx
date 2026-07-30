@@ -1,3 +1,14 @@
+import {
+  ArrowClockwiseIcon,
+  ArrowsDownUpIcon,
+  ArrowsLeftRightIcon,
+  FolderOpenIcon,
+  PlugsIcon,
+  SplitHorizontalIcon,
+  TerminalIcon,
+  XIcon,
+} from '@phosphor-icons/react'
+
 import { useVault } from '../state/useVault'
 import { useTheme } from '../state/useTheme'
 import { useWorkspace } from '../state/useWorkspace'
@@ -8,7 +19,7 @@ interface Props {
   onOpenTunnels: (sessionId: string, hostId: string) => void
 }
 
-/** Tab bar + grid pane. Split một cấp: đủ cho 2 tới 4 pane cạnh nhau. */
+/** Tab bar + grid pane. Single-level split: enough for 2 to 4 panes side by side. */
 export function Workspace({ onOpenTunnels }: Props) {
   const { hosts } = useVault()
   const { resolved } = useTheme()
@@ -25,32 +36,36 @@ export function Workspace({ onOpenTunnels }: Props) {
   } = useWorkspace()
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? null
+  const DirectionIcon = tab?.direction === 'row' ? ArrowsDownUpIcon : ArrowsLeftRightIcon
 
   return (
     <section className="workspace">
       {tab && (
         <div className="pane-toolbar">
           <button className="btn-quiet" onClick={() => void splitActive('terminal')}>
-            Chia terminal
+            <SplitHorizontalIcon />
+            Split terminal
           </button>
           <button className="btn-quiet" onClick={() => void splitActive('sftp')}>
-            Chia SFTP
+            <SplitHorizontalIcon />
+            Split SFTP
           </button>
           <span className="spacer" />
           <button
             className="btn-quiet"
             onClick={() => setDirection(tab.id, tab.direction === 'row' ? 'col' : 'row')}
           >
-            {tab.direction === 'row' ? 'Xếp dọc' : 'Xếp ngang'}
+            <DirectionIcon />
+            {tab.direction === 'row' ? 'Stack vertically' : 'Stack horizontally'}
           </button>
         </div>
       )}
 
       {!tab && (
         <div className="placeholder">
-          <strong>Session đã đóng hết</strong>
+          <strong>All sessions closed</strong>
           <p>
-            Quay lại tab <span className="kbd">Quản lý</span> để chọn host khác.
+            Go back to the <span className="kbd">Manage</span> tab to pick another host.
           </p>
         </div>
       )}
@@ -75,9 +90,9 @@ export function Workspace({ onOpenTunnels }: Props) {
                   <span className="pane-title">
                     {session?.label ?? 'session'}
                     {session?.reconnecting && (
-                      <span className="badge">Đang kết nối lại</span>
+                      <span className="badge">Reconnecting</span>
                     )}
-                    {isClosed && <span className="pane-state">Đã ngắt</span>}
+                    {isClosed && <span className="pane-state">Disconnected</span>}
                   </span>
 
                   <span className="pane-tools">
@@ -86,7 +101,8 @@ export function Workspace({ onOpenTunnels }: Props) {
                         className="btn-primary"
                         onClick={() => void reconnect(pane.sessionId, 80, 24)}
                       >
-                        Kết nối lại
+                        <ArrowClockwiseIcon />
+                        Reconnect
                       </button>
                     )}
 
@@ -97,12 +113,14 @@ export function Workspace({ onOpenTunnels }: Props) {
                             className={pane.view === 'terminal' ? 'on' : ''}
                             onClick={() => setPaneView(tab.id, pane.id, 'terminal')}
                           >
+                            <TerminalIcon size={14} />
                             Terminal
                           </button>
                           <button
                             className={pane.view === 'sftp' ? 'on' : ''}
                             onClick={() => setPaneView(tab.id, pane.id, 'sftp')}
                           >
+                            <FolderOpenIcon size={14} />
                             File
                           </button>
                         </span>
@@ -112,6 +130,7 @@ export function Workspace({ onOpenTunnels }: Props) {
                             session.hostId && onOpenTunnels(session.id, session.hostId)
                           }
                         >
+                          <PlugsIcon />
                           Tunnel
                         </button>
                       </>
@@ -119,10 +138,10 @@ export function Workspace({ onOpenTunnels }: Props) {
 
                     <button
                       className="btn-quiet"
-                      aria-label="Đóng pane"
+                      aria-label="Close pane"
                       onClick={() => void closePane(tab.id, pane.id)}
                     >
-                      ✕
+                      <XIcon />
                     </button>
                   </span>
                 </header>
@@ -131,7 +150,7 @@ export function Workspace({ onOpenTunnels }: Props) {
                   {pane.view === 'terminal' ? (
                     <TerminalView
                       sessionId={pane.sessionId}
-                      // Host chưa chọn theme riêng thì đi theo chủ đề của app.
+                      // If the host hasn't picked its own theme, follow the app's theme.
                       themeId={host?.theme ?? (resolved === 'light' ? 'paper' : null)}
                       focused={isActive}
                       closedReason={session?.closedReason ?? null}

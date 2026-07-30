@@ -5,14 +5,15 @@ use tokio::sync::Mutex;
 use super::handler::{ForwardRegistry, RemoteTarget, ShellmuxHandler};
 use crate::error::AppResult;
 
-/// Một SSH connection cùng toàn bộ chuỗi jump host phía trên nó.
+/// One SSH connection together with its entire chain of jump hosts above it.
 ///
-/// `parents` phải được giữ sống: drop một `Handle` là đóng connection đó, kéo
-/// theo channel direct-tcpip mà connection con đang chạy trên đó.
+/// `parents` must be kept alive: dropping a `Handle` closes that connection,
+/// taking down the direct-tcpip channel the child connection is running on.
 ///
-/// Handle nằm trong `Mutex` vì `russh` chỉ cho một luồng chờ reply tại một
-/// thời điểm. Chi phí là serialize lúc *mở* channel, còn channel đã mở thì
-/// hoạt động độc lập — nên terminal, SFTP và tunnel không chặn nhau.
+/// Handle sits inside a `Mutex` because `russh` only lets one thread wait
+/// for a reply at a time. The cost is serialized only while *opening* a
+/// channel — once open, channels operate independently, so terminal, SFTP,
+/// and tunnel don't block each other.
 pub struct SshLink {
     pub host_id: String,
     handle: Mutex<Handle<ShellmuxHandler>>,
@@ -61,8 +62,8 @@ impl SshLink {
         Ok(channel)
     }
 
-    /// Đăng ký đích local *trước* khi xin server forward, để channel ngược
-    /// đầu tiên không rơi vào khoảng trống chưa có registry.
+    /// Registers the local destination *before* asking the server to
+    /// forward, so the first reverse channel doesn't arrive before the registry exists.
     pub async fn request_remote_forward(
         &self,
         bind_addr: &str,

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { CaretDownIcon, CaretUpIcon, XIcon } from '@phosphor-icons/react'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
@@ -37,8 +38,8 @@ export function TerminalView({
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
 
-  // Ref thay vì dependency: terminal chỉ được dựng một lần cho mỗi session, và
-  // handler onData phải luôn thấy trạng thái mới nhất mà không phải tạo lại.
+  // Ref instead of dependency: the terminal is only built once per session, and
+  // the onData handler must always see the latest state without being recreated.
   const closedRef = useRef<boolean>(false)
   const onReconnectRef = useRef(onReconnect)
   onReconnectRef.current = onReconnect
@@ -71,12 +72,12 @@ export function TerminalView({
 
     term.open(container)
 
-    // WebGL nhanh hơn nhiều nhưng không có trên mọi WebView — fallback im lặng
-    // về canvas renderer thay vì làm chết terminal.
+    // WebGL is much faster but isn't available on every WebView — fall back
+    // silently to the canvas renderer instead of breaking the terminal.
     try {
       term.loadAddon(new WebglAddon())
     } catch {
-      /* dùng renderer mặc định */
+      /* use the default renderer */
     }
 
     termRef.current = term
@@ -85,8 +86,8 @@ export function TerminalView({
 
     const encoder = new TextEncoder()
     const dataSub = term.onData((data) => {
-      // Khi session đã chết, phím bất kỳ nghĩa là "kết nối lại" chứ không phải
-      // input — giống cách Tabby mời reconnect.
+      // Once the session has died, any keypress means "reconnect" rather than
+      // input — similar to how Tabby prompts a reconnect.
       if (closedRef.current) {
         onReconnectRef.current(term.cols, term.rows)
         return
@@ -110,7 +111,7 @@ export function TerminalView({
       void sessionApi.resize(sessionId, term.cols, term.rows)
     }
 
-    // Chờ layout xong mới fit lần đầu, nếu không cols/rows tính trên khung 0px.
+    // Wait for layout to settle before the first fit, otherwise cols/rows get computed against a 0px frame.
     const raf = requestAnimationFrame(syncSize)
     const observer = new ResizeObserver(syncSize)
     observer.observe(container)
@@ -133,8 +134,8 @@ export function TerminalView({
   useEffect(() => {
     if (!closedReason) return
     termRef.current?.write(
-      `\r\n\x1b[38;5;244m[ session đã đóng: ${closedReason}. ` +
-        `Nhấn phím bất kỳ để kết nối lại ]\x1b[0m\r\n`,
+      `\r\n\x1b[38;5;244m[ session closed: ${closedReason}. ` +
+        `Press any key to reconnect ]\x1b[0m\r\n`,
     )
   }, [closedReason])
 
@@ -167,28 +168,30 @@ export function TerminalView({
           <input
             autoFocus
             value={query}
-            placeholder="Tìm trong buffer"
-            aria-label="Từ khoá tìm trong buffer"
+            placeholder="Search in buffer"
+            aria-label="Search term for buffer"
             onChange={(e) => setQuery(e.target.value)}
           />
           <button
             type="button"
             className="btn-outline"
-            aria-label="Kết quả trước"
+            aria-label="Previous result"
+            title="Previous result"
             onClick={() => searchRef.current?.findPrevious(query)}
           >
-            Trước
+            <CaretUpIcon />
           </button>
-          <button type="submit" className="btn-outline">
-            Tiếp
+          <button type="submit" className="btn-outline" aria-label="Next result" title="Next result">
+            <CaretDownIcon />
           </button>
           <button
             type="button"
             className="btn-quiet"
-            aria-label="Đóng tìm kiếm"
+            aria-label="Close search"
+            title="Close search"
             onClick={() => setSearchOpen(false)}
           >
-            Đóng
+            <XIcon />
           </button>
         </form>
       )}

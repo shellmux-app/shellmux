@@ -1,8 +1,9 @@
-//! Local forward (-L): dữ liệu phải chạy từ socket local, qua channel
-//! direct-tcpip, tới đúng dịch vụ phía remote.
+//! Local forward (-L): data must flow from the local socket, through the
+//! direct-tcpip channel, to the correct service on the remote side.
 //!
-//! Test dùng `SshLink::open_direct_tcpip` + `pipe::splice` — đúng hai thứ mà
-//! `tunnel::start_local` gọi bên trong, nhưng không cần `AppHandle` của Tauri.
+//! The test uses `SshLink::open_direct_tcpip` + `pipe::splice` — exactly the two
+//! things `tunnel::start_local` calls internally, but without needing Tauri's
+//! `AppHandle`.
 
 mod common;
 
@@ -15,7 +16,7 @@ use tokio::net::{TcpListener, TcpStream};
 use shellmux_lib::pipe::splice;
 use shellmux_lib::ssh::connect_host;
 
-/// Dịch vụ "phía remote": TCP server trả lời bằng chuỗi đã in hoa.
+/// "Remote-side" service: TCP server that replies with the uppercased string.
 async fn spawn_upcase_service() -> u16 {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -40,7 +41,7 @@ async fn spawn_upcase_service() -> u16 {
 
 #[tokio::test]
 async fn local_forward_carries_traffic_to_the_remote_service() {
-    // Arrange: server SSH cho phép forward + dịch vụ đích + host đã tin cậy.
+    // Arrange: SSH server that allows forwarding + target service + trusted host.
     let server = spawn_server(true).await;
     let service_port = spawn_upcase_service().await;
     let fx = temp_vault_with_host(server.port);
@@ -49,7 +50,7 @@ async fn local_forward_carries_traffic_to_the_remote_service() {
         .unwrap();
     let link = connect_host(fx.vault.clone(), "h1").await.unwrap();
 
-    // Listener local đóng vai cổng đã forward.
+    // Local listener plays the role of the forwarded port.
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let local_port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
@@ -62,7 +63,7 @@ async fn local_forward_carries_traffic_to_the_remote_service() {
                 origin.port(),
             )
             .await
-            .expect("mở direct-tcpip");
+            .expect("open direct-tcpip");
         let _ = splice(channel, socket).await;
     });
 
@@ -73,7 +74,7 @@ async fn local_forward_carries_traffic_to_the_remote_service() {
     let mut buf = vec![0u8; 64];
     let n = tokio::time::timeout(Duration::from_secs(5), client.read(&mut buf))
         .await
-        .expect("timeout khi chờ phản hồi qua tunnel")
+        .expect("timed out waiting for response through tunnel")
         .unwrap();
 
     // Assert
@@ -91,5 +92,5 @@ async fn direct_tcpip_is_rejected_when_the_server_forbids_forwarding() {
 
     let result = link.open_direct_tcpip("127.0.0.1", 9, "127.0.0.1", 1234).await;
 
-    assert!(result.is_err(), "server từ chối thì client phải báo lỗi");
+    assert!(result.is_err(), "if the server refuses, the client must report an error");
 }

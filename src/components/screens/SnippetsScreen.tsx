@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CheckIcon, PencilSimpleIcon, PlayIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react'
 
 import { sessionApi } from '../../lib/ipc'
 import type { Snippet } from '../../lib/types'
@@ -18,7 +19,7 @@ export function SnippetsScreen() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!draft.name.trim() || !draft.body.trim()) {
-      setStatus('cần cả tên và nội dung')
+      setStatus('name and content are both required')
       return
     }
     try {
@@ -33,12 +34,12 @@ export function SnippetsScreen() {
   const run = async (snippet: Snippet) => {
     const targets = activeSessionIds()
     if (targets.length === 0) {
-      setStatus('không có session nào đang mở')
+      setStatus('no sessions are currently open')
       return
     }
     try {
       const sent = await sessionApi.sendSnippet(targets, snippet.id)
-      setStatus(`đã gửi tới ${sent}/${targets.length} session`)
+      setStatus(`sent to ${sent}/${targets.length} sessions`)
     } catch (err) {
       setStatus(describe(err))
     }
@@ -55,7 +56,7 @@ export function SnippetsScreen() {
             checked={broadcast}
             onChange={(e) => setBroadcast(e.target.checked)}
           />
-          Broadcast: gửi tới mọi session đang mở thay vì chỉ pane đang focus
+          Broadcast: send to every open session instead of just the focused pane
         </label>
 
         <ul className="rows">
@@ -65,19 +66,26 @@ export function SnippetsScreen() {
               <code className="row-meta">{snippet.body.split('\n')[0]}</code>
               <span className="row-tools">
                 <button className="btn-primary" onClick={() => void run(snippet)}>
+                  <PlayIcon weight="fill" />
                   Run
                 </button>
-                <button className="btn-quiet" onClick={() => setDraft(snippet)}>Sửa</button>
-                <button className="btn-quiet" onClick={() => void deleteSnippet(snippet.id)}>Xoá</button>
+                <button className="btn-quiet" onClick={() => setDraft(snippet)}>
+                  <PencilSimpleIcon />
+                  Edit
+                </button>
+                <button className="btn-quiet" onClick={() => void deleteSnippet(snippet.id)}>
+                  <TrashIcon />
+                  Delete
+                </button>
               </span>
             </li>
           ))}
-          {snippets.length === 0 && <li className="placeholder"><strong>Chưa có snippet</strong><p>Lưu những lệnh bạn gõ lại nhiều lần để gửi nhanh sau này.</p></li>}
+          {snippets.length === 0 && <li className="placeholder"><strong>No snippets yet</strong><p>Save commands you type repeatedly so you can send them quickly later.</p></li>}
         </ul>
 
         <form onSubmit={submit}>
           <label>
-            Tên
+            Name
             <input
               value={draft.name}
               onChange={(e) => patch({ name: e.target.value })}
@@ -85,7 +93,7 @@ export function SnippetsScreen() {
             />
           </label>
           <label>
-            Nội dung
+            Content
             <textarea
               rows={4}
               value={draft.body}
@@ -99,14 +107,15 @@ export function SnippetsScreen() {
               checked={draft.sendNewline}
               onChange={(e) => patch({ sendNewline: e.target.checked })}
             />
-            Tự thêm Enter ở cuối
+            Automatically add Enter at the end
           </label>
 
           {status && <p className="hint">{status}</p>}
 
           <footer className="modal-foot">
             <button type="submit" className="btn-primary">
-              {draft.id ? 'Cập nhật' : 'Thêm'}
+              {draft.id ? <CheckIcon /> : <PlusIcon />}
+              {draft.id ? 'Update' : 'Add'}
             </button>
           </footer>
         </form>

@@ -10,7 +10,7 @@ use crate::state::AppState;
 fn decode(data: &str) -> AppResult<Vec<u8>> {
     base64::engine::general_purpose::STANDARD
         .decode(data)
-        .map_err(|e| AppError::Invalid(format!("payload base64 không hợp lệ: {e}")))
+        .map_err(|e| AppError::Invalid(format!("invalid base64 payload: {e}")))
 }
 
 #[tauri::command]
@@ -113,8 +113,8 @@ pub async fn session_close(
     state: State<'_, AppState>,
     session_id: String,
 ) -> AppResult<()> {
-    // Dọn tunnel và SFTP của *session này* trước, nếu không channel treo lại
-    // trên một connection đã đóng.
+    // Clean up this *session's* tunnels and SFTP first, otherwise their channels
+    // are left hanging on a connection that's already closed.
     state.tunnels.stop_for_session(&app, &session_id).await;
     state.sftp.close(&session_id).await;
     state.sessions.close(&session_id).await
@@ -125,9 +125,9 @@ pub fn session_list(state: State<'_, AppState>) -> AppResult<Vec<SessionInfo>> {
     Ok(state.sessions.list())
 }
 
-/// Kết nối lại một session đã rớt mà **giữ nguyên session id**, nên pane và
-/// scrollback phía UI không bị dựng lại. Ý tưởng lấy từ `reconnect()` của
-/// Tabby (`ConnectableTerminalTabComponent`).
+/// Reconnects a dropped session while **keeping the same session id**, so the
+/// UI-side pane and scrollback don't get rebuilt. Idea borrowed from Tabby's
+/// `reconnect()` (`ConnectableTerminalTabComponent`).
 #[tauri::command]
 pub async fn session_reconnect(
     app: AppHandle,
@@ -138,7 +138,7 @@ pub async fn session_reconnect(
 ) -> AppResult<SessionInfo> {
     let info = state.sessions.info(&session_id)?;
 
-    // Tunnel và SFTP bám vào connection cũ — phải dọn trước khi thay.
+    // Tunnels and SFTP latch onto the old connection — must clean them up before replacing it.
     state.tunnels.stop_for_session(&app, &session_id).await;
     state.sftp.close(&session_id).await;
 
@@ -149,7 +149,7 @@ pub async fn session_reconnect(
             let host_id = info
                 .host_id
                 .clone()
-                .ok_or_else(|| AppError::Invalid("session SSH thiếu host".into()))?;
+                .ok_or_else(|| AppError::Invalid("SSH session is missing a host".into()))?;
             let link = ssh::connect_host(state.vault.clone(), &host_id).await?;
             let tx = shell::start(
                 app,
@@ -181,9 +181,9 @@ pub async fn session_reconnect(
     Ok(info)
 }
 
-/// Gửi một snippet tới nhiều session cùng lúc (broadcast).
-/// Snippet đi thẳng vào PTY stream, không qua shell của máy này — nên không có
-/// chỗ nào để nội suy hay inject.
+/// Sends a snippet to multiple sessions at once (broadcast).
+/// The snippet goes straight into the PTY stream, not through this machine's
+/// shell — so there's no place for interpolation or injection.
 #[tauri::command]
 pub async fn snippet_send(
     state: State<'_, AppState>,
@@ -214,7 +214,7 @@ pub async fn snippet_send(
             .await
         {
             Ok(()) => sent += 1,
-            Err(e) => log::warn!("snippet tới session {id} thất bại: {e}"),
+            Err(e) => log::warn!("snippet to session {id} failed: {e}"),
         }
     }
     Ok(sent)

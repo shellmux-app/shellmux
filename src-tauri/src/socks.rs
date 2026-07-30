@@ -1,7 +1,7 @@
-//! SOCKS5 tối giản cho dynamic forward (-D).
+//! Minimal SOCKS5 for dynamic forward (-D).
 //!
-//! Chỉ hiện thực lệnh CONNECT không xác thực — đúng phần mà `ssh -D` dùng.
-//! Không có BIND/UDP ASSOCIATE vì SSH không mang được hai thứ đó.
+//! Only implements the unauthenticated CONNECT command — exactly the part
+//! that `ssh -D` uses. No BIND/UDP ASSOCIATE since SSH can't carry those two.
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -19,16 +19,18 @@ const REP_SUCCESS: u8 = 0x00;
 const REP_CMD_NOT_SUPPORTED: u8 = 0x07;
 const REP_ATYP_NOT_SUPPORTED: u8 = 0x08;
 
-/// Đích mà client SOCKS muốn tới — sẽ thành tham số của direct-tcpip channel.
+/// The destination the SOCKS client wants to reach — becomes the
+/// direct-tcpip channel's parameters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Target {
     pub host: String,
     pub port: u16,
 }
 
-/// Bắt tay SOCKS5 tới bước nhận được CONNECT. Chưa trả lời client —
-/// caller phải mở channel SSH trước rồi mới `reply` thành công hay thất bại,
-/// nếu không sẽ báo OK cho một kết nối chưa chắc mở được.
+/// SOCKS5 handshake up through receiving CONNECT. Does not reply to the
+/// client yet — the caller must open the SSH channel first and only then
+/// `reply` success or failure, otherwise it would report OK for a
+/// connection that might not actually open.
 pub async fn accept_connect<S>(stream: &mut S) -> AppResult<Target>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -38,17 +40,17 @@ where
     stream.read_exact(&mut head).await?;
     if head[0] != VERSION {
         return Err(AppError::Tunnel(format!(
-            "SOCKS version không hỗ trợ: {}",
+            "unsupported SOCKS version: {}",
             head[0]
         )));
     }
     let mut methods = vec![0u8; head[1] as usize];
     stream.read_exact(&mut methods).await?;
     if !methods.contains(&AUTH_NONE) {
-        // 0xFF = không có method nào chấp nhận được.
+        // 0xFF = no acceptable method.
         stream.write_all(&[VERSION, 0xFF]).await?;
         return Err(AppError::Tunnel(
-            "client SOCKS đòi xác thực, tunnel này chỉ nhận no-auth".into(),
+            "SOCKS client demands authentication, this tunnel only accepts no-auth".into(),
         ));
     }
     stream.write_all(&[VERSION, AUTH_NONE]).await?;
@@ -57,12 +59,12 @@ where
     let mut request = [0u8; 4];
     stream.read_exact(&mut request).await?;
     if request[0] != VERSION {
-        return Err(AppError::Tunnel("SOCKS request sai version".into()));
+        return Err(AppError::Tunnel("SOCKS request has the wrong version".into()));
     }
     if request[1] != CMD_CONNECT {
         reply(stream, REP_CMD_NOT_SUPPORTED).await?;
         return Err(AppError::Tunnel(format!(
-            "chỉ hỗ trợ CONNECT, nhận lệnh {}",
+            "only CONNECT is supported, received command {}",
             request[1]
         )));
     }
@@ -84,11 +86,11 @@ where
             let mut name = vec![0u8; len[0] as usize];
             stream.read_exact(&mut name).await?;
             String::from_utf8(name)
-                .map_err(|_| AppError::Tunnel("tên miền trong SOCKS không phải UTF-8".into()))?
+                .map_err(|_| AppError::Tunnel("domain name in SOCKS is not valid UTF-8".into()))?
         }
         other => {
             reply(stream, REP_ATYP_NOT_SUPPORTED).await?;
-            return Err(AppError::Tunnel(format!("address type lạ: {other}")));
+            return Err(AppError::Tunnel(format!("unknown address type: {other}")));
         }
     };
 
@@ -108,7 +110,7 @@ where
     reply(stream, REP_SUCCESS).await
 }
 
-/// Báo lỗi chung (0x01 general failure) khi không mở được channel SSH.
+/// Reports a general error (0x01 general failure) when the SSH channel fails to open.
 pub async fn reply_failure<S>(stream: &mut S) -> AppResult<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -120,7 +122,7 @@ async fn reply<S>(stream: &mut S, code: u8) -> AppResult<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    // BND.ADDR/BND.PORT để 0 — client không dùng chúng cho CONNECT.
+    // BND.ADDR/BND.PORT left at 0 — the client doesn't use them for CONNECT.
     let frame = [VERSION, code, 0x00, ATYP_IPV4, 0, 0, 0, 0, 0, 0];
     stream.write_all(&frame).await?;
     stream.flush().await?;
@@ -132,13 +134,13 @@ mod tests {
     use super::*;
     use tokio::io::{duplex, AsyncReadExt, AsyncWriteExt};
 
-    /// Dựng một "client SOCKS" giả trên duplex stream trong bộ nhớ.
+    /// Builds a fake "SOCKS client" over an in-memory duplex stream.
     async fn run_handshake(client_bytes: Vec<u8>) -> (AppResult<Target>, Vec<u8>) {
         let (mut client, mut server) = duplex(1024);
         let writer = tokio::spawn(async move {
             client.write_all(&client_bytes).await.unwrap();
             let mut out = Vec::new();
-            // Đọc tới khi server đóng để lấy toàn bộ phản hồi.
+            // Read until the server closes to get the full response.
             let _ = client.read_to_end(&mut out).await;
             out
         });
@@ -161,11 +163,11 @@ mod tests {
 
         let (result, response) = run_handshake(bytes).await;
 
-        let target = result.expect("handshake phải thành công");
+        let target = result.expect("handshake must succeed");
         assert_eq!(target.host, "127.0.0.1");
         assert_eq!(target.port, 8080);
-        assert_eq!(response[0..2], [0x05, 0x00], "chọn method no-auth");
-        assert_eq!(response[2..4], [0x05, 0x00], "reply thành công");
+        assert_eq!(response[0..2], [0x05, 0x00], "selects no-auth method");
+        assert_eq!(response[2..4], [0x05, 0x00], "successful reply");
     }
 
     #[tokio::test]
@@ -176,7 +178,7 @@ mod tests {
 
         let (result, _) = run_handshake(bytes).await;
 
-        let target = result.expect("domain phải parse được");
+        let target = result.expect("domain must parse");
         assert_eq!(target.host, "example.com");
         assert_eq!(target.port, 443);
     }
@@ -194,13 +196,13 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_a_client_that_refuses_no_auth() {
-        // Chỉ khai method 0x02 (username/password).
+        // Only declares method 0x02 (username/password).
         let bytes = vec![0x05, 0x01, 0x02];
 
         let (result, response) = run_handshake(bytes).await;
 
         assert!(result.is_err());
-        assert_eq!(response[0..2], [0x05, 0xFF], "phải báo no acceptable methods");
+        assert_eq!(response[0..2], [0x05, 0xFF], "must report no acceptable methods");
     }
 
     #[tokio::test]
@@ -216,7 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_a_non_socks5_greeting() {
-        // SOCKS4 bắt đầu bằng 0x04.
+        // SOCKS4 starts with 0x04.
         let (result, _) = run_handshake(vec![0x04, 0x01, 0x00]).await;
 
         assert!(result.is_err());

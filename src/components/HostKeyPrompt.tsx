@@ -1,9 +1,11 @@
+import { KeyIcon, ShieldWarningIcon } from '@phosphor-icons/react'
+
 import { vaultApi } from '../lib/ipc'
 import { useWorkspace } from '../state/useWorkspace'
 
 /**
- * Không có accept-any: người dùng phải nhìn fingerprint rồi tự quyết định.
- * Trường hợp key *đổi* được hiển thị nặng hơn vì đó là dấu hiệu MITM.
+ * No accept-any: the user must look at the fingerprint and decide for themselves.
+ * A *changed* key is shown with more emphasis since it's a sign of a possible MITM attack.
  */
 export function HostKeyPrompt() {
   const { hostKeyPrompt, dismissHostKeyPrompt, openSsh } = useWorkspace()
@@ -20,8 +22,11 @@ export function HostKeyPrompt() {
 
   return (
     <div className="modal-backdrop">
-      <div className={`modal ${mismatch ? 'danger' : ''}`}>
-        <h2>{mismatch ? '⚠️ Host key đã THAY ĐỔI' : 'Host key chưa được tin cậy'}</h2>
+      <div className={`modal ${mismatch ? 'is-danger' : ''}`}>
+        <h2>
+          {mismatch ? <ShieldWarningIcon color="var(--danger)" /> : <KeyIcon />}
+          {mismatch ? 'Host key has CHANGED' : 'Host key not yet trusted'}
+        </h2>
 
         <p>
           {host}:{port}
@@ -30,15 +35,16 @@ export function HostKeyPrompt() {
         {mismatch ? (
           <>
             <p className="error">
-              Key trước đó khác với key server vừa trình ra. Có thể server được cài lại, hoặc
-              có ai đó đang đứng giữa. Chỉ tin cậy nếu bạn biết chắc lý do key đổi.
+              The previous key differs from the key the server just presented. The server may
+              have been reinstalled, or someone could be intercepting the connection. Only trust
+              this if you are certain why the key changed.
             </p>
             <dl className="fingerprint">
-              <dt>Đã lưu</dt>
+              <dt>Saved</dt>
               <dd>
                 <code>{previous}</code>
               </dd>
-              <dt>Server hiện tại</dt>
+              <dt>Current server</dt>
               <dd>
                 <code>{fingerprint}</code>
               </dd>
@@ -46,7 +52,7 @@ export function HostKeyPrompt() {
           </>
         ) : (
           <dl className="fingerprint">
-            <dt>Thuật toán</dt>
+            <dt>Algorithm</dt>
             <dd>
               <code>{algo}</code>
             </dd>
@@ -58,14 +64,17 @@ export function HostKeyPrompt() {
         )}
 
         <p className="hint">
-          Đối chiếu với output của <code>ssh-keyscan -t {algo} {host}</code> chạy từ một
-          đường mạng bạn tin được.
+          Compare this against the output of <code>ssh-keyscan -t {algo} {host}</code> run from
+          a network path you trust.
         </p>
 
         <footer className="modal-foot">
-          <button onClick={dismissHostKeyPrompt}>Huỷ kết nối</button>
-          <button className={mismatch ? 'danger' : 'primary'} onClick={() => void trust()}>
-            {mismatch ? 'Tôi hiểu rủi ro, tin cậy key mới' : 'Tin cậy và kết nối'}
+          <button onClick={dismissHostKeyPrompt}>Cancel connection</button>
+          <button
+            className={mismatch ? 'btn-danger' : 'btn-primary'}
+            onClick={() => void trust()}
+          >
+            {mismatch ? 'I understand the risk, trust the new key' : 'Trust and connect'}
           </button>
         </footer>
       </div>

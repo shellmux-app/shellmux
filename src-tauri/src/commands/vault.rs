@@ -5,7 +5,7 @@ use crate::error::AppResult;
 use crate::state::AppState;
 use crate::vault::{secrets, Group, Host, Identity, KnownHost, Snippet, TunnelSpec};
 
-/// Id rỗng nghĩa là record mới — sinh uuid thay vì để frontend tự lo.
+/// An empty id means a new record — generate a uuid instead of leaving it to the frontend.
 fn ensure_id(id: &str) -> String {
     if id.trim().is_empty() {
         Uuid::new_v4().to_string()
@@ -43,8 +43,8 @@ pub fn list_identities(state: State<'_, AppState>) -> AppResult<Vec<Identity>> {
     state.vault.list_identities()
 }
 
-/// `secret` chỉ đi một chiều: vào keychain rồi biến mất. Không có command nào
-/// đọc secret ra cho frontend.
+/// `secret` only flows one way: into the keychain, then it's gone. No command
+/// reads the secret back out to the frontend.
 #[tauri::command]
 pub fn save_identity(
     state: State<'_, AppState>,
@@ -162,7 +162,7 @@ pub fn get_known_host(
     state.vault.get_known_host(&host, port)
 }
 
-/// Gọi sau khi người dùng đã nhìn fingerprint và bấm đồng ý.
+/// Called after the user has viewed the fingerprint and clicked accept.
 #[tauri::command]
 pub fn trust_host_key(
     state: State<'_, AppState>,

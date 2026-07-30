@@ -82,7 +82,7 @@ export interface RemoteEntry {
   group: string | null
 }
 
-/// Lỗi từ Rust: `kind` cho UI biết cần modal gì thay vì chỉ in text.
+/// Error from Rust: `kind` tells the UI which modal to show instead of just printing text.
 export type IpcErrorKind = 'hostKeyUnknown' | 'hostKeyMismatch' | 'auth' | 'generic'
 
 export interface HostKeyUnknownData {

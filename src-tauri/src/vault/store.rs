@@ -7,8 +7,8 @@ use super::model::*;
 use super::schema::{INIT_SQL, SCHEMA_VERSION};
 use crate::error::{AppError, AppResult};
 
-/// Metadata store. Không giữ secret — chỉ cờ `has_secret`.
-/// Mọi hàm trả struct mới, không nhận `&mut` để sửa tại chỗ.
+/// Metadata store. Does not hold secrets — only the `has_secret` flag.
+/// Every function returns a new struct; none take `&mut` to mutate in place.
 pub struct Vault {
     conn: Mutex<Connection>,
 }
@@ -29,7 +29,7 @@ impl Vault {
     fn lock(&self) -> AppResult<std::sync::MutexGuard<'_, Connection>> {
         self.conn
             .lock()
-            .map_err(|_| AppError::Vault("vault mutex bị poisoned".into()))
+            .map_err(|_| AppError::Vault("vault mutex was poisoned".into()))
     }
 
     // ---------------------------------------------------------------- groups

@@ -24,8 +24,8 @@ pub struct RemoteEntry {
     pub group: Option<String>,
 }
 
-/// SFTP session được cache theo session id: mở subsystem tốn một round-trip,
-/// không đáng làm lại cho từng lần `ls`.
+/// SFTP session cached per session id: opening the subsystem costs a
+/// round-trip, not worth repeating for every `ls`.
 #[derive(Default)]
 pub struct SftpRegistry {
     sessions: DashMap<String, Arc<SftpSession>>,
@@ -60,14 +60,14 @@ impl SftpRegistry {
     }
 }
 
-/// Chặn path traversal và path rỗng trước khi gửi lên server.
+/// Blocks path traversal and empty paths before sending to the server.
 fn validate_remote(path: &str) -> AppResult<()> {
     if path.trim().is_empty() {
-        return Err(AppError::Invalid("đường dẫn remote rỗng".into()));
+        return Err(AppError::Invalid("remote path is empty".into()));
     }
     if path.split('/').any(|seg| seg == "..") {
         return Err(AppError::Invalid(
-            "đường dẫn remote không được chứa '..'".into(),
+            "remote path must not contain '..'".into(),
         ));
     }
     Ok(())
@@ -95,7 +95,7 @@ pub async fn list(sftp: &SftpSession, path: &str) -> AppResult<Vec<RemoteEntry>>
         })
         .collect();
 
-    // Thư mục lên trước, rồi theo tên — giống Finder, đỡ phải sort ở UI.
+    // Directories first, then by name — like Finder, saves sorting in the UI.
     out.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
     Ok(out)
 }
@@ -128,7 +128,7 @@ pub async fn remove(sftp: &SftpSession, path: &str, is_dir: bool) -> AppResult<(
     Ok(())
 }
 
-/// Remote → local, stream theo chunk để file lớn không nuốt hết RAM.
+/// Remote → local, streamed in chunks so large files don't eat up all the RAM.
 pub async fn download(sftp: &SftpSession, remote: &str, local: &str) -> AppResult<u64> {
     validate_remote(remote)?;
     let mut src = sftp.open(remote).await?;
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn does_not_reject_names_that_merely_contain_dots() {
-        // `..` chỉ bị chặn khi là cả một segment, không phải khi là tiền tố tên.
+        // `..` is only blocked when it's a whole segment, not when it's a name prefix.
         assert!(validate_remote("/var/log/..hidden").is_ok());
         assert!(validate_remote("/data/archive..2026").is_ok());
     }

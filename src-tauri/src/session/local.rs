@@ -12,8 +12,8 @@ use crate::events::{ClosedEvent, DataEvent, EV_CLOSED, EV_DATA};
 const OUTBOUND_BUFFER: usize = 256;
 const READ_CHUNK: usize = 32 * 1024;
 
-/// Tab shell local. `portable-pty` là API blocking nên mỗi session dùng hai
-/// thread thật thay vì task async: một đọc, một ghi + resize.
+/// Local shell tab. `portable-pty` is a blocking API, so each session uses two
+/// real threads instead of async tasks: one for reading, one for writing + resize.
 pub fn start(
     app: AppHandle,
     session_id: String,
@@ -58,7 +58,7 @@ pub fn start(
 
     let (tx, mut rx) = mpsc::channel::<Outbound>(OUTBOUND_BUFFER);
 
-    // Thread đọc: PTY → event.
+    // Reader thread: PTY → event.
     let reader_app = app.clone();
     let reader_id = session_id.clone();
     std::thread::spawn(move || {
@@ -80,7 +80,7 @@ pub fn start(
         }
         let reason = match child.wait() {
             Ok(status) => format!("exit code {}", status.exit_code()),
-            Err(e) => format!("pty lỗi: {e}"),
+            Err(e) => format!("pty error: {e}"),
         };
         let _ = reader_app.emit(
             EV_CLOSED,
@@ -92,7 +92,7 @@ pub fn start(
         );
     });
 
-    // Thread ghi: giữ cả writer và master để xử lý input lẫn resize.
+    // Writer thread: holds both the writer and master to handle input and resize.
     std::thread::spawn(move || {
         while let Some(outbound) = rx.blocking_recv() {
             match outbound {

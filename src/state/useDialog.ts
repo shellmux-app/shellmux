@@ -1,11 +1,11 @@
 import { create } from 'zustand'
 
 /**
- * Thay `window.prompt` / `window.confirm` bằng dialog trong app.
+ * Replaces `window.prompt` / `window.confirm` with an in-app dialog.
  *
- * Dialog của hệ điều hành chặn cả process, không style được, và trên macOS nó
- * hiện ra như một cảnh báo hệ thống cho một việc nhỏ như đổi tên file. API ở
- * đây vẫn trả Promise nên call site gần như không đổi.
+ * The OS dialog blocks the whole process, can't be styled, and on macOS it
+ * shows up as a system alert for something as small as renaming a file. This
+ * API still returns a Promise, so call sites barely change.
  */
 
 interface PromptOptions {
@@ -21,7 +21,7 @@ interface ConfirmOptions {
   title: string
   body: string
   confirmLabel?: string
-  /** Hành động phá huỷ: nút xác nhận đổi sang tông cảnh báo. */
+  /** Destructive action: the confirm button switches to a warning tone. */
   danger?: boolean
 }
 

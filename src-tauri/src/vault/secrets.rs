@@ -6,28 +6,29 @@ use crate::error::AppResult;
 
 const SERVICE: &str = "dev.shellmux.vault";
 
-/// `keyring` 4 cài credential store mặc định *lazily* bên trong `Entry::new`,
-/// và cờ đánh dấu được set trước khi store thật sự sẵn sàng. Hai task cùng
-/// gọi lần đầu thì một task thấy cờ đã bật nhưng store còn trống và nhận
-/// `NoDefaultStore`. `OnceLock` bắt mọi caller chờ lần khởi tạo đầu tiên xong.
+/// `keyring` 4 installs the default credential store *lazily* inside `Entry::new`,
+/// and the ready flag gets set before the store is actually ready. If two tasks
+/// both call it for the first time, one of them can see the flag already set
+/// while the store is still empty and get `NoDefaultStore`. `OnceLock` makes
+/// every caller wait for the first initialization to finish.
 static STORE_READY: OnceLock<()> = OnceLock::new();
 
 fn entry(account: &str) -> AppResult<Entry> {
     STORE_READY.get_or_init(|| {
-        // Chỉ để kích hoạt store; không đọc/ghi nên không có prompt nào.
+        // Only to activate the store; no read/write means no prompt.
         let _ = Entry::new(SERVICE, "__warmup__");
     });
     Ok(Entry::new(SERVICE, account)?)
 }
 
-/// Gọi lúc khởi động để lần connect đầu tiên không phải trả giá khởi tạo.
+/// Called at startup so the first connection doesn't pay the initialization cost.
 pub fn warm_up() {
     STORE_READY.get_or_init(|| {
         let _ = Entry::new(SERVICE, "__warmup__");
     });
 }
 
-/// Wrapper để password/passphrase không bao giờ lọt vào log hay panic message.
+/// Wrapper so passwords/passphrases never leak into logs or panic messages.
 pub struct Secret(String);
 
 impl Secret {
@@ -42,8 +43,8 @@ impl std::fmt::Debug for Secret {
     }
 }
 
-/// Khoá trong keychain: `identity:<id>` — một secret cho mỗi identity
-/// (password hoặc passphrase của key, tuỳ `auth_kind`).
+/// Keychain key: `identity:<id>` — one secret per identity
+/// (password or key passphrase, depending on `auth_kind`).
 fn account_for(identity_id: &str) -> String {
     format!("identity:{identity_id}")
 }
@@ -53,8 +54,8 @@ pub fn store(identity_id: &str, value: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// Trả `None` khi chưa có secret nào được lưu — đây không phải lỗi, nhiều
-/// identity (agent, key không passphrase) vốn không cần secret.
+/// Returns `None` when no secret has been stored yet — this isn't an error,
+/// many identities (agent, passphrase-less key) simply don't need a secret.
 pub fn load(identity_id: &str) -> AppResult<Option<Secret>> {
     match entry(&account_for(identity_id))?.get_password() {
         Ok(v) => Ok(Some(Secret(v))),

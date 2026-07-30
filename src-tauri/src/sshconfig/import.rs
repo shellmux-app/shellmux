@@ -4,10 +4,11 @@ use super::parse::{first_jump_target, parse, SshConfigHost};
 use crate::error::AppResult;
 use crate::vault::{AuthKind, Group, Host, Identity, Vault};
 
-/// Id cố định theo alias, nên import lại lần hai là *cập nhật* chứ không tạo
-/// bản sao. Đổi lại: sửa tay một host đã import rồi import lại sẽ bị ghi đè.
+/// The id is fixed by alias, so importing a second time *updates* rather than
+/// creating a copy. Trade-off: manually editing an already-imported host and
+/// then re-importing will overwrite it.
 const GROUP_ID: &str = "sshconfig";
-const GROUP_NAME: &str = "Từ ~/.ssh/config";
+const GROUP_NAME: &str = "From ~/.ssh/config";
 
 fn host_id(alias: &str) -> String {
     format!("sshconfig:{alias}")
@@ -23,11 +24,11 @@ pub struct ImportReport {
     pub hosts: usize,
     pub identities: usize,
     pub jumps_linked: usize,
-    /// Alias được `ProxyJump` trỏ tới nhưng không có trong file — không link được.
+    /// Alias that `ProxyJump` points to but that isn't present in the file — can't be linked.
     pub unresolved_jumps: Vec<String>,
     pub includes_skipped: usize,
     pub wildcard_blocks: usize,
-    /// Host khai `ForwardAgent yes` — Shellmux chưa hỗ trợ agent forwarding.
+    /// Host declares `ForwardAgent yes` — Shellmux doesn't support agent forwarding yet.
     pub agent_forward_ignored: usize,
 }
 
@@ -68,7 +69,7 @@ pub fn import_into(vault: &Vault, text: &str) -> AppResult<ImportReport> {
             jump_host_id: jump,
             theme: None,
             color_tag: None,
-            notes: Some(format!("Import từ ~/.ssh/config (Host {})", entry.alias)),
+            notes: Some(format!("Imported from ~/.ssh/config (Host {})", entry.alias)),
             sort: index as i64,
         })?;
         report.hosts += 1;
@@ -82,7 +83,7 @@ pub fn import_into(vault: &Vault, text: &str) -> AppResult<ImportReport> {
     Ok(report)
 }
 
-/// Nhiều host thường dùng chung một key — tạo một identity rồi tái sử dụng.
+/// Many hosts often share the same key — create one identity and reuse it.
 fn ensure_identity(
     vault: &Vault,
     entry: &SshConfigHost,
@@ -106,7 +107,7 @@ fn ensure_identity(
             auth_kind: AuthKind::PrivateKey,
             username: None,
             private_key_path: Some(path.clone()),
-            // Key có passphrase thì người dùng tự nhập sau; import không đọc key.
+            // If the key has a passphrase, the user enters it later; import doesn't read the key.
             has_secret: false,
         })?;
         seen.push(path.clone());

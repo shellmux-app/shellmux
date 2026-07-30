@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
+import {
+  ArrowClockwiseIcon,
+  ArrowRightIcon,
+  ArrowUpIcon,
+  DownloadSimpleIcon,
+  FolderPlusIcon,
+  PencilSimpleIcon,
+  TrashIcon,
+  UploadSimpleIcon,
+} from '@phosphor-icons/react'
 
 import { sftpApi } from '../lib/ipc'
 import type { RemoteEntry } from '../lib/types'
@@ -50,7 +60,7 @@ function parentOf(path: string): string {
   return cut <= 0 ? '/' : trimmed.slice(0, cut)
 }
 
-/** File browser chạy trên đúng connection SSH của session, không dial lại. */
+/** File browser runs over the session's existing SSH connection, without dialing again. */
 export function SftpPanel({ sessionId }: Props) {
   const { ask, confirm } = useDialog()
   const [path, setPath] = useState('.')
@@ -83,7 +93,7 @@ export function SftpPanel({ sessionId }: Props) {
     void refresh('.')
   }, [refresh])
 
-  /** Chạy một thao tác rồi tải lại danh sách, gom xử lý lỗi về một chỗ. */
+  /** Run an operation then reload the listing, keeping error handling in one place. */
   const run = async (action: () => Promise<string>) => {
     try {
       const message = await action()
@@ -100,7 +110,7 @@ export function SftpPanel({ sessionId }: Props) {
     setLoading(true)
     try {
       const bytes = await sftpApi.download(sessionId, entry.path, target)
-      setStatus({ text: `Đã tải ${formatSize(bytes)} về ${target}`, isError: false })
+      setStatus({ text: `Downloaded ${formatSize(bytes)} to ${target}`, isError: false })
     } catch (e) {
       setStatus({ text: describe(e), isError: true })
     } finally {
@@ -114,52 +124,52 @@ export function SftpPanel({ sessionId }: Props) {
     const name = picked.split('/').pop() ?? 'upload.bin'
     await run(async () => {
       const bytes = await sftpApi.upload(sessionId, picked, `${path}/${name}`)
-      return `Đã đẩy lên ${name} (${formatSize(bytes)})`
+      return `Uploaded ${name} (${formatSize(bytes)})`
     })
   }
 
   const mkdir = async () => {
     const name = await ask({
-      title: 'Thư mục mới',
-      label: 'Tên thư mục',
+      title: 'New folder',
+      label: 'Folder name',
       placeholder: 'releases',
-      hint: `Tạo trong ${path}`,
-      confirmLabel: 'Tạo',
+      hint: `Create inside ${path}`,
+      confirmLabel: 'Create',
     })
     if (!name) return
     await run(async () => {
       await sftpApi.mkdir(sessionId, `${path}/${name}`)
-      return `Đã tạo ${name}`
+      return `Created ${name}`
     })
   }
 
   const rename = async (entry: RemoteEntry) => {
     const name = await ask({
-      title: 'Đổi tên',
-      label: 'Tên mới',
+      title: 'Rename',
+      label: 'New name',
       value: entry.name,
-      confirmLabel: 'Đổi tên',
+      confirmLabel: 'Rename',
     })
     if (!name || name === entry.name) return
     await run(async () => {
       await sftpApi.rename(sessionId, entry.path, `${parentOf(entry.path)}/${name}`)
-      return `Đã đổi thành ${name}`
+      return `Renamed to ${name}`
     })
   }
 
   const remove = async (entry: RemoteEntry) => {
     const ok = await confirm({
-      title: `Xoá ${entry.name}?`,
+      title: `Delete ${entry.name}?`,
       body: entry.isDir
-        ? 'Thư mục phải rỗng mới xoá được. Hành động này không hoàn tác được.'
-        : 'Hành động này không hoàn tác được.',
-      confirmLabel: 'Xoá',
+        ? 'The folder must be empty before it can be deleted. This action cannot be undone.'
+        : 'This action cannot be undone.',
+      confirmLabel: 'Delete',
       danger: true,
     })
     if (!ok) return
     await run(async () => {
       await sftpApi.remove(sessionId, entry.path, entry.isDir)
-      return `Đã xoá ${entry.name}`
+      return `Deleted ${entry.name}`
     })
   }
 
@@ -170,14 +180,15 @@ export function SftpPanel({ sessionId }: Props) {
           className="btn-outline"
           onClick={() => void refresh(parentOf(path))}
           disabled={path === '/'}
-          title="Lên thư mục cha"
+          title="Go to parent folder"
         >
-          Lên
+          <ArrowUpIcon />
+          Up
         </button>
         <input
           className="sftp-path"
           value={draftPath}
-          aria-label="Đường dẫn remote"
+          aria-label="Remote path"
           onChange={(e) => setDraftPath(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') void refresh(draftPath)
@@ -185,19 +196,22 @@ export function SftpPanel({ sessionId }: Props) {
           }}
         />
         <button className="btn-outline" onClick={() => void refresh(path)}>
-          Tải lại
+          <ArrowClockwiseIcon />
+          Reload
         </button>
         <button className="btn-outline" onClick={() => void mkdir()}>
-          Thư mục mới
+          <FolderPlusIcon />
+          New folder
         </button>
         <button className="btn-primary" onClick={() => void upload()}>
-          Tải lên
+          <UploadSimpleIcon />
+          Upload
         </button>
       </header>
 
       <div className="sftp-list">
         {loading && entries.length === 0 ? (
-          <div className="skeleton-rows" aria-busy="true" aria-label="Đang tải danh sách">
+          <div className="skeleton-rows" aria-busy="true" aria-label="Loading listing">
             {[72, 54, 63, 45, 58, 40].map((width, i) => (
               <div key={i} className="skeleton-row" style={{ width: `${width}%` }} />
             ))}
@@ -206,11 +220,11 @@ export function SftpPanel({ sessionId }: Props) {
           <table>
             <thead>
               <tr>
-                <th>Tên</th>
-                <th>Kích thước</th>
-                <th>Sửa lần cuối</th>
-                <th>Quyền</th>
-                <th>Chủ sở hữu</th>
+                <th>Name</th>
+                <th>Size</th>
+                <th>Modified</th>
+                <th>Permissions</th>
+                <th>Owner</th>
                 <th />
               </tr>
             </thead>
@@ -239,18 +253,22 @@ export function SftpPanel({ sessionId }: Props) {
                     <span className="row-actions">
                       {entry.isDir ? (
                         <button className="btn-quiet" onClick={() => void refresh(entry.path)}>
-                          Mở
+                          <ArrowRightIcon />
+                          Open
                         </button>
                       ) : (
                         <button className="btn-quiet" onClick={() => void download(entry)}>
-                          Tải về
+                          <DownloadSimpleIcon />
+                          Download
                         </button>
                       )}
                       <button className="btn-quiet" onClick={() => void rename(entry)}>
-                        Đổi tên
+                        <PencilSimpleIcon />
+                        Rename
                       </button>
                       <button className="btn-quiet" onClick={() => void remove(entry)}>
-                        Xoá
+                        <TrashIcon />
+                        Delete
                       </button>
                     </span>
                   </td>
@@ -261,8 +279,8 @@ export function SftpPanel({ sessionId }: Props) {
                 <tr>
                   <td colSpan={6}>
                     <div className="placeholder">
-                      <strong>Thư mục rỗng</strong>
-                      <p>Dùng nút Tải lên để đẩy file vào {path}.</p>
+                      <strong>Empty folder</strong>
+                      <p>Use the Upload button to push files into {path}.</p>
                     </div>
                   </td>
                 </tr>

@@ -1,4 +1,4 @@
-//! Vault store: CRUD và known-hosts. Không chạm keychain nên an toàn trong CI.
+//! Vault store: CRUD and known-hosts. Doesn't touch the keychain, so it's safe in CI.
 
 use shellmux_lib::vault::{
     AuthKind, Group, Host, Identity, Snippet, TunnelKind, TunnelSpec, Vault,
@@ -66,7 +66,7 @@ fn upsert_with_existing_id_updates_instead_of_duplicating() {
 fn get_host_returns_not_found_for_unknown_id() {
     let (_dir, vault) = temp_vault();
     let err = vault.get_host("missing").unwrap_err();
-    assert!(err.to_string().contains("missing"), "được: {err}");
+    assert!(err.to_string().contains("missing"), "got: {err}");
 }
 
 #[test]
@@ -85,8 +85,8 @@ fn deleting_group_leaves_hosts_but_clears_their_group() {
 
     vault.delete_group("g1").unwrap();
 
-    let host = vault.get_host("h1").expect("host vẫn còn");
-    assert_eq!(host.group_id, None, "ON DELETE SET NULL phải giữ lại host");
+    let host = vault.get_host("h1").expect("host should still exist");
+    assert_eq!(host.group_id, None, "ON DELETE SET NULL must keep the host");
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn identity_secret_flag_persists_without_storing_the_secret() {
 
     assert!(loaded.has_secret);
     assert_eq!(loaded.auth_kind, AuthKind::PrivateKey);
-    // Chỉ có cờ và đường dẫn — không có field nào chứa secret.
+    // Only the flag and the path — no field contains the secret.
     assert_eq!(loaded.private_key_path.as_deref(), Some("/tmp/id_ed25519"));
 }
 

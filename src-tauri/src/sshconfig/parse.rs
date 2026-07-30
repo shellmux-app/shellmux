@@ -1,17 +1,17 @@
-//! Parser cho `~/.ssh/config`.
+//! Parser for `~/.ssh/config`.
 //!
-//! Theo ngữ nghĩa của OpenSSH: một alias có thể khớp nhiều khối `Host`, và với
-//! mỗi option thì **giá trị xuất hiện đầu tiên thắng** (không phải cuối cùng).
-//! Vì vậy phải giữ nguyên thứ tự khối trong file rồi mới resolve.
+//! Follows OpenSSH semantics: an alias can match multiple `Host` blocks, and for
+//! each option, **the value that appears first wins** (not the last one).
+//! So the blocks' order in the file must be preserved before resolving.
 
-/// Một khối `Host` thô, chưa resolve.
+/// A raw, unresolved `Host` block.
 #[derive(Debug, Clone)]
 struct Block {
     patterns: Vec<String>,
     options: Vec<(String, String)>,
 }
 
-/// Một host cụ thể sau khi đã resolve toàn bộ option áp dụng cho nó.
+/// A specific host after resolving all the options that apply to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SshConfigHost {
     pub alias: String,
@@ -23,14 +23,14 @@ pub struct SshConfigHost {
     pub forward_agent: bool,
 }
 
-/// Kết quả parse, kèm những thứ bị bỏ qua để báo lại cho người dùng thay vì
-/// im lặng nuốt.
+/// Parse result, including anything that was skipped, so it can be reported
+/// back to the user instead of being silently swallowed.
 #[derive(Debug, Default)]
 pub struct ParseResult {
     pub hosts: Vec<SshConfigHost>,
-    /// Số chỉ thị `Include` gặp phải — chưa hỗ trợ, xem ROADMAP.
+    /// Number of `Include` directives encountered — not yet supported, see ROADMAP.
     pub includes_skipped: usize,
-    /// Alias chỉ chứa wildcard (`Host *`): dùng làm mặc định, không import.
+    /// Alias that contains only a wildcard (`Host *`): used to supply defaults, not imported.
     pub wildcard_blocks: usize,
 }
 
@@ -66,8 +66,8 @@ pub fn parse(text: &str) -> ParseResult {
             continue;
         }
 
-        // `Match` có ngữ nghĩa điều kiện phức tạp (exec, user, ...) — bỏ qua cả
-        // khối thay vì import sai.
+        // `Match` has complex conditional semantics (exec, user, ...) — skip the
+        // whole block rather than import it incorrectly.
         if key_lower == "match" {
             if let Some(block) = current.take() {
                 blocks.push(block);
@@ -90,7 +90,7 @@ pub fn parse(text: &str) -> ParseResult {
             result.wildcard_blocks += 1;
         }
         for pattern in &block.patterns {
-            // Alias phủ định (`!host`) chỉ dùng để loại trừ, không phải host thật.
+            // A negated alias (`!host`) is only used for exclusion, not a real host.
             if is_wildcard(pattern) || pattern.starts_with('!') {
                 continue;
             }
@@ -130,7 +130,7 @@ fn resolve(alias: &str, blocks: &[Block]) -> SshConfigHost {
     }
 }
 
-/// Khớp alias với danh sách pattern của một khối, có xử lý phủ định `!`.
+/// Matches an alias against a block's pattern list, handling `!` negation.
 fn matches_any(alias: &str, patterns: &[String]) -> bool {
     let mut matched = false;
     for pattern in patterns {
@@ -145,7 +145,7 @@ fn matches_any(alias: &str, patterns: &[String]) -> bool {
     matched
 }
 
-/// Glob của ssh_config chỉ có `*` và `?` — không cần regex.
+/// ssh_config's glob syntax only has `*` and `?` — no need for regex.
 fn glob_match(pattern: &str, text: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let t: Vec<char> = text.chars().collect();
@@ -183,7 +183,7 @@ fn strip_comment(line: &str) -> &str {
     without.trim()
 }
 
-/// ssh_config chấp nhận cả `Key value` lẫn `Key=value`.
+/// ssh_config accepts both `Key value` and `Key=value`.
 fn split_option(line: &str) -> Option<(&str, &str)> {
     if let Some((key, value)) = line.split_once('=') {
         let key = key.trim();
@@ -218,8 +218,8 @@ fn expand_tilde(path: &str) -> String {
     }
 }
 
-/// `ProxyJump` có dạng `[user@]host[:port]`, và có thể là một chuỗi nhiều tầng
-/// ngăn bởi dấu phẩy — tầng đầu tiên là nơi kết nối tới trước.
+/// `ProxyJump` has the form `[user@]host[:port]`, and can be a multi-hop chain
+/// separated by commas — the first hop is where it connects to first.
 pub fn first_jump_target(spec: &str) -> &str {
     let first = spec.split(',').next().unwrap_or(spec).trim();
     let without_user = first.rsplit('@').next().unwrap_or(first);
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn first_value_wins_like_openssh_not_last() {
-        // OpenSSH lấy giá trị *đầu tiên* khớp, khác với trực giác "ghi đè".
+        // OpenSSH takes the *first* matching value — unlike the intuitive "last write wins".
         let cfg = "Host web\n  User first\nHost *\n  User fallback\n";
 
         let hosts = parse(cfg).hosts;
@@ -266,7 +266,7 @@ mod tests {
 
         let result = parse(cfg);
 
-        assert_eq!(result.hosts.len(), 1, "chỉ `web` được import");
+        assert_eq!(result.hosts.len(), 1, "only `web` is imported");
         assert_eq!(result.hosts[0].user.as_deref(), Some("ubuntu"));
         assert_eq!(result.hosts[0].port, Some(2222));
         assert_eq!(result.wildcard_blocks, 1);
@@ -288,12 +288,12 @@ mod tests {
 
         let hosts = parse(cfg).hosts;
 
-        assert_eq!(hosts[0].user, None, "`!web` phải loại khối đó khỏi web");
+        assert_eq!(hosts[0].user, None, "`!web` must exclude that block from web");
     }
 
     #[test]
     fn accepts_equals_syntax_comments_and_quotes() {
-        let cfg = "Host web # máy chủ chính\n  HostName=10.0.0.5\n  User=\"deploy\"\n";
+        let cfg = "Host web # main server\n  HostName=10.0.0.5\n  User=\"deploy\"\n";
 
         let hosts = parse(cfg).hosts;
 
@@ -316,7 +316,7 @@ mod tests {
         let hosts = parse(cfg).hosts;
 
         assert_eq!(hosts.len(), 1);
-        assert_eq!(hosts[0].port, None, "option trong Match không được áp");
+        assert_eq!(hosts[0].port, None, "options inside a Match block are not applied");
     }
 
     #[test]

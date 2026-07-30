@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import { CheckIcon, TrashIcon, XIcon } from '@phosphor-icons/react'
 
 import { useDialog } from '../../state/useDialog'
 
 /**
- * Nơi duy nhất render prompt/confirm. Đặt một lần ở App, mọi call site chỉ gọi
- * `ask()` / `confirm()` rồi await.
+ * The single place that renders prompt/confirm. Mounted once in App; every
+ * call site just calls `ask()` / `confirm()` and awaits the result.
  *
- * Bàn phím: Esc để huỷ, Enter để xác nhận, autofocus vào ô nhập — đúng những
- * gì `window.prompt` cho sẵn mà app tự làm thường bỏ mất.
+ * Keyboard: Esc cancels, Enter confirms, the input autofocuses — the things
+ * `window.prompt` gives you for free that hand-rolled dialogs usually drop.
  */
 export function DialogHost() {
   const { request, resolvePrompt, resolveConfirm } = useDialog()
@@ -17,7 +18,7 @@ export function DialogHost() {
   useEffect(() => {
     if (request?.kind === 'prompt') {
       setValue(request.value ?? '')
-      // Chờ một frame để dialog vào DOM rồi mới focus và select.
+      // Wait one frame for the dialog to mount before focusing and selecting.
       requestAnimationFrame(() => inputRef.current?.select())
     }
   }, [request])
@@ -74,10 +75,12 @@ export function DialogHost() {
 
             <footer className="dialog-actions">
               <button type="button" onClick={cancel}>
-                Huỷ
+                <XIcon />
+                Cancel
               </button>
               <button type="submit" className="btn-primary" disabled={value.trim().length === 0}>
-                {request.confirmLabel ?? 'Lưu'}
+                <CheckIcon />
+                {request.confirmLabel ?? 'Save'}
               </button>
             </footer>
           </form>
@@ -86,7 +89,8 @@ export function DialogHost() {
             <p className="dialog-body">{request.body}</p>
             <footer className="dialog-actions">
               <button type="button" onClick={() => resolveConfirm(false)}>
-                Huỷ
+                <XIcon />
+                Cancel
               </button>
               <button
                 type="button"
@@ -94,7 +98,8 @@ export function DialogHost() {
                 className={request.danger ? 'btn-danger' : 'btn-primary'}
                 onClick={() => resolveConfirm(true)}
               >
-                {request.confirmLabel ?? 'Đồng ý'}
+                {request.danger ? <TrashIcon /> : <CheckIcon />}
+                {request.confirmLabel ?? 'Confirm'}
               </button>
             </footer>
           </>

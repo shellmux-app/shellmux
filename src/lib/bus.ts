@@ -1,5 +1,6 @@
 import { listen } from '@tauri-apps/api/event'
 
+import { isTauriRuntime } from './env'
 import { decodeBytes } from './ipc'
 
 interface DataEvent {
@@ -10,7 +11,7 @@ interface DataEvent {
 interface ClosedEvent {
   sessionId: string
   reason: string
-  /** Pump cũ có thể phát event muộn sau khi đã reconnect — xem store. */
+  /** The old pump may fire a late event after a reconnect has happened — see store. */
   generation: number
 }
 
@@ -26,9 +27,9 @@ type CloseHandler = (sessionId: string, reason: string, generation: number) => v
 type TunnelHandler = (event: TunnelEvent) => void
 
 /**
- * Một listener duy nhất cho toàn app rồi route theo sessionId. Mỗi terminal tự
- * đăng ký writer của nó — nếu để từng component gọi `listen` thì N tab sẽ tạo
- * N listener và mỗi byte phải đi qua tất cả.
+ * A single listener for the whole app that then routes by sessionId. Each terminal
+ * registers its own writer — if every component called `listen` individually, N tabs
+ * would create N listeners and every byte would have to pass through all of them.
  */
 const writers = new Map<string, Writer>()
 const closeHandlers = new Set<CloseHandler>()
@@ -39,6 +40,11 @@ let started = false
 export function startBus(): void {
   if (started) return
   started = true
+
+  if (!isTauriRuntime()) {
+    console.warn('[bus] not running inside the Tauri webview — skipping IPC event registration.')
+    return
+  }
 
   void listen<DataEvent>('session:data', (event) => {
     const writer = writers.get(event.payload.sessionId)
