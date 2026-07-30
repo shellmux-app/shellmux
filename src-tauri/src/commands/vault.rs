@@ -149,6 +149,11 @@ pub fn delete_tunnel(state: State<'_, AppState>, id: String) -> AppResult<()> {
 // --------------------------------------------------------------- known hosts
 
 #[tauri::command]
+pub fn list_known_hosts(state: State<'_, AppState>) -> AppResult<Vec<KnownHost>> {
+    state.vault.list_known_hosts()
+}
+
+#[tauri::command]
 pub fn get_known_host(
     state: State<'_, AppState>,
     host: String,

@@ -55,6 +55,7 @@ export const vaultApi = {
   saveTunnel: (tunnel: TunnelSpec) => invoke<TunnelSpec>('save_tunnel', { tunnel }),
   deleteTunnel: (id: string) => invoke<void>('delete_tunnel', { id }),
 
+  listKnownHosts: () => invoke<KnownHost[]>('list_known_hosts'),
   getKnownHost: (host: string, port: number) =>
     invoke<KnownHost | null>('get_known_host', { host, port }),
   trustHostKey: (host: string, port: number, algo: string, fingerprint: string) =>

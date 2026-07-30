@@ -88,22 +88,22 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
       <div className="modal wide" onClick={(e) => e.stopPropagation()}>
         <h2>Port forwarding</h2>
 
-        <ul className="tunnel-list">
+        <ul className="rows">
           {mine.map((spec) => (
             <li key={spec.id}>
               <span className={`dot ${active.includes(spec.id) ? 'on' : ''}`} aria-hidden />
-              <span className="tunnel-name">{spec.name}</span>
-              <code className="tunnel-route">{describeSpec(spec)}</code>
-              <span className="tunnel-tools">
-                <button className="primary" onClick={() => void toggle(spec)}>
+              <span className="row-name">{spec.name}</span>
+              <code className="row-meta">{describeSpec(spec)}</code>
+              <span className="row-tools">
+                <button className="btn-primary" onClick={() => void toggle(spec)}>
                   {active.includes(spec.id) ? 'Stop' : 'Start'}
                 </button>
-                <button onClick={() => setDraft(spec)}>✎</button>
-                <button onClick={() => void deleteTunnel(spec.id)}>🗑</button>
+                <button className="btn-quiet" onClick={() => setDraft(spec)}>Sửa</button>
+                <button className="btn-quiet" onClick={() => void deleteTunnel(spec.id)}>Xoá</button>
               </span>
             </li>
           ))}
-          {mine.length === 0 && <li className="empty">host này chưa có tunnel nào</li>}
+          {mine.length === 0 && <li className="placeholder"><strong>Host này chưa có tunnel</strong><p>Thêm một tunnel ở form bên dưới rồi bấm Start khi cần.</p></li>}
         </ul>
 
         <form onSubmit={submit}>
@@ -120,7 +120,7 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
               >
                 <option value="local">Local (-L)</option>
                 <option value="remote">Remote (-R)</option>
-                <option value="dynamic">Dynamic — SOCKS5 (-D)</option>
+                <option value="dynamic">Dynamic, SOCKS5 (-D)</option>
               </select>
             </label>
             <label>
@@ -170,7 +170,7 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
             <button type="button" onClick={onClose}>
               Đóng
             </button>
-            <button type="submit" className="primary">
+            <button type="submit" className="btn-primary">
               {draft.id ? 'Cập nhật' : 'Thêm tunnel'}
             </button>
           </footer>

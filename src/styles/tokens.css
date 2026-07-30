@@ -1,0 +1,138 @@
+/* ============================================================================
+   Shellmux design tokens
+   ----------------------------------------------------------------------------
+   Ngôn ngữ thị giác: macOS-native. Nền có gradient dịu, panel bán trong suốt
+   xếp lớp lên nền đó, hàng và card bo góc, accent kiểu system.
+
+   LƯU Ý về "liquid glass": đây là *xấp xỉ bằng CSS*, không phải material của
+   Apple. `backdrop-filter` chỉ làm mờ những gì nằm trong cửa sổ app. Muốn mờ
+   thật cả desktop phía sau thì cần cửa sổ trong suốt + NSVisualEffectView ở
+   tầng Tauri (xem docs/UI.md).
+   ========================================================================== */
+
+:root {
+  --fs-micro: 11.5px;
+  --fs-small: 12.5px;
+  --fs-base: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 21px;
+
+  --lh-tight: 1.25;
+  --lh-body: 1.55;
+
+  /* Ba bậc bán kính có quy tắc: control, panel, dialog. */
+  --r-sm: 7px;
+  --r-md: 12px;
+  --r-lg: 16px;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  --rail-w: 208px;
+  --nav-h: 46px;
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ---------------------------------------------------------------- sáng --- */
+  --canvas: #e8ecf1;
+  /* Gradient wash của nền, đúng tinh thần sidebar TablePlus: một vệt xanh lạnh
+     ở góc trên trái và một vệt xanh lục ở góc dưới phải. */
+  --canvas-wash: radial-gradient(
+      760px 520px at 0% 0%,
+      rgb(96 168 250 / 0.36),
+      transparent 68%
+    ),
+    radial-gradient(680px 520px at 4% 100%, rgb(120 226 196 / 0.34), transparent 66%),
+    radial-gradient(900px 620px at 100% 92%, rgb(150 205 255 / 0.22), transparent 60%);
+
+  --glass: rgb(255 255 255 / 0.62);
+  --glass-strong: rgb(255 255 255 / 0.86);
+  --glass-border: rgb(255 255 255 / 0.7);
+  --glass-blur: saturate(180%) blur(24px);
+
+  --surface: #ffffff;
+  --surface-sunken: rgb(255 255 255 / 0.45);
+  --hover: rgb(20 30 45 / 0.06);
+  --border: rgb(20 30 45 / 0.1);
+  --border-strong: rgb(20 30 45 / 0.2);
+
+  --text: #16191d;
+  --text-soft: #444b53;
+  --text-dim: #5e666f;
+
+  /* Accent hệ thống: xanh macOS cho lựa chọn, teal cho hành động chính. */
+  --select: #0a68e0;
+  --select-ink: #ffffff;
+  --accent: #0f766e;
+  --accent-hover: #115e59;
+  --accent-ink: #ffffff;
+  --accent-wash: rgb(15 118 110 / 0.12);
+
+  --danger: #b4232a;
+  --danger-wash: rgb(180 35 42 / 0.1);
+  --focus: #0a68e0;
+
+  --shadow-card: 0 1px 2px rgb(16 24 36 / 0.06), 0 6px 18px rgb(16 24 36 / 0.07);
+  --shadow-dialog: 0 24px 64px rgb(16 24 36 / 0.24);
+}
+
+:root[data-theme='dark'] {
+  --canvas: #0c0f14;
+  --canvas-wash: radial-gradient(
+      760px 520px at 0% 0%,
+      rgb(56 122 196 / 0.3),
+      transparent 66%
+    ),
+    radial-gradient(680px 520px at 4% 100%, rgb(30 150 130 / 0.26), transparent 64%),
+    radial-gradient(900px 620px at 100% 92%, rgb(70 130 190 / 0.16), transparent 60%);
+
+  --glass: rgb(28 33 41 / 0.62);
+  --glass-strong: rgb(24 28 35 / 0.88);
+  --glass-border: rgb(255 255 255 / 0.09);
+  --glass-blur: saturate(160%) blur(26px);
+
+  --surface: #171b21;
+  --surface-sunken: rgb(255 255 255 / 0.04);
+  --hover: rgb(255 255 255 / 0.07);
+  --border: rgb(255 255 255 / 0.1);
+  --border-strong: rgb(255 255 255 / 0.2);
+
+  --text: #e7eaef;
+  --text-soft: #b4bcc6;
+  --text-dim: #939ca7;
+
+  --select: #2f7fe6;
+  --select-ink: #ffffff;
+  --accent: #5eead4;
+  --accent-hover: #99f6e4;
+  --accent-ink: #06201d;
+  --accent-wash: rgb(94 234 212 / 0.16);
+
+  --danger: #fca5a5;
+  --danger-wash: rgb(252 165 165 / 0.14);
+  --focus: #5eead4;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 6px 18px rgb(0 0 0 / 0.3);
+  --shadow-dialog: 0 24px 64px rgb(0 0 0 / 0.55);
+}
+
+/* Người dùng tắt hiệu ứng trong suốt thì thay bằng nền đặc, không phải blur. */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass: #ffffff;
+    --glass-strong: #ffffff;
+    --glass-blur: none;
+    --canvas-wash: none;
+  }
+
+  :root[data-theme='dark'] {
+    --glass: #171b21;
+    --glass-strong: #14181e;
+    --glass-blur: none;
+    --canvas-wash: none;
+  }
+}

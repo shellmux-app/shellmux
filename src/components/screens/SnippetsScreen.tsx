@@ -1,17 +1,13 @@
 import { useState } from 'react'
 
-import { sessionApi } from '../lib/ipc'
-import type { Snippet } from '../lib/types'
-import { describe, useVault } from '../state/useVault'
-import { useWorkspace } from '../state/useWorkspace'
-
-interface Props {
-  onClose: () => void
-}
+import { sessionApi } from '../../lib/ipc'
+import type { Snippet } from '../../lib/types'
+import { describe, useVault } from '../../state/useVault'
+import { useWorkspace } from '../../state/useWorkspace'
 
 const EMPTY: Snippet = { id: '', name: '', body: '', groupId: null, sendNewline: true }
 
-export function SnippetDialog({ onClose }: Props) {
+export function SnippetsScreen() {
   const { snippets, saveSnippet, deleteSnippet } = useVault()
   const { broadcast, setBroadcast, activeSessionIds } = useWorkspace()
   const [draft, setDraft] = useState<Snippet>(EMPTY)
@@ -49,9 +45,9 @@ export function SnippetDialog({ onClose }: Props) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal wide" onClick={(e) => e.stopPropagation()}>
-        <h2>Snippets</h2>
+    <div className="screen">
+      <div className="screen-body">
+        <h2 className="section-title">Snippets</h2>
 
         <label className="inline">
           <input
@@ -59,24 +55,24 @@ export function SnippetDialog({ onClose }: Props) {
             checked={broadcast}
             onChange={(e) => setBroadcast(e.target.checked)}
           />
-          Broadcast — gửi tới mọi session đang mở thay vì chỉ pane đang focus
+          Broadcast: gửi tới mọi session đang mở thay vì chỉ pane đang focus
         </label>
 
-        <ul className="snippet-list">
+        <ul className="rows">
           {snippets.map((snippet) => (
             <li key={snippet.id}>
-              <span className="snippet-name">{snippet.name}</span>
-              <code className="snippet-body">{snippet.body.split('\n')[0]}</code>
-              <span className="snippet-tools">
-                <button className="primary" onClick={() => void run(snippet)}>
+              <span className="row-name">{snippet.name}</span>
+              <code className="row-meta">{snippet.body.split('\n')[0]}</code>
+              <span className="row-tools">
+                <button className="btn-primary" onClick={() => void run(snippet)}>
                   Run
                 </button>
-                <button onClick={() => setDraft(snippet)}>✎</button>
-                <button onClick={() => void deleteSnippet(snippet.id)}>🗑</button>
+                <button className="btn-quiet" onClick={() => setDraft(snippet)}>Sửa</button>
+                <button className="btn-quiet" onClick={() => void deleteSnippet(snippet.id)}>Xoá</button>
               </span>
             </li>
           ))}
-          {snippets.length === 0 && <li className="empty">chưa có snippet nào</li>}
+          {snippets.length === 0 && <li className="placeholder"><strong>Chưa có snippet</strong><p>Lưu những lệnh bạn gõ lại nhiều lần để gửi nhanh sau này.</p></li>}
         </ul>
 
         <form onSubmit={submit}>
@@ -109,10 +105,7 @@ export function SnippetDialog({ onClose }: Props) {
           {status && <p className="hint">{status}</p>}
 
           <footer className="modal-foot">
-            <button type="button" onClick={onClose}>
-              Đóng
-            </button>
-            <button type="submit" className="primary">
+            <button type="submit" className="btn-primary">
               {draft.id ? 'Cập nhật' : 'Thêm'}
             </button>
           </footer>

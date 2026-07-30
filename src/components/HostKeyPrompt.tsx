@@ -30,7 +30,7 @@ export function HostKeyPrompt() {
         {mismatch ? (
           <>
             <p className="error">
-              Key trước đó khác với key server vừa trình ra. Có thể server được cài lại — hoặc
+              Key trước đó khác với key server vừa trình ra. Có thể server được cài lại, hoặc
               có ai đó đang đứng giữa. Chỉ tin cậy nếu bạn biết chắc lý do key đổi.
             </p>
             <dl className="fingerprint">

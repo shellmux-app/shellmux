@@ -47,6 +47,7 @@ pub fn run() {
             commands::vault::list_tunnels,
             commands::vault::save_tunnel,
             commands::vault::delete_tunnel,
+            commands::vault::list_known_hosts,
             commands::vault::get_known_host,
             commands::vault::trust_host_key,
             commands::vault::forget_host_key,

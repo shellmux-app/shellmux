@@ -1,12 +1,8 @@
 import { useState } from 'react'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 
-import type { AuthKind, Identity } from '../lib/types'
-import { describe, useVault } from '../state/useVault'
-
-interface Props {
-  onClose: () => void
-}
+import type { AuthKind, Identity } from '../../lib/types'
+import { describe, useVault } from '../../state/useVault'
 
 const EMPTY: Identity = {
   id: '',
@@ -23,7 +19,7 @@ const KIND_LABEL: Record<AuthKind, string> = {
   password: 'Password',
 }
 
-export function IdentityDialog({ onClose }: Props) {
+export function KeychainScreen() {
   const { identities, saveIdentity, deleteIdentity } = useVault()
   const [draft, setDraft] = useState<Identity>(EMPTY)
   const [secret, setSecret] = useState('')
@@ -62,28 +58,28 @@ export function IdentityDialog({ onClose }: Props) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal wide" onClick={(e) => e.stopPropagation()}>
-        <h2>Identities</h2>
+    <div className="screen">
+      <div className="screen-body">
+        <h2 className="section-title">Identities</h2>
 
-        <ul className="ident-list">
+        <ul className="rows">
           {identities.map((identity) => (
             <li key={identity.id}>
-              <span className="ident-name">{identity.name}</span>
-              <span className="ident-kind">{KIND_LABEL[identity.authKind]}</span>
-              <span className="ident-path">
-                {identity.privateKeyPath ?? (identity.hasSecret ? 'secret ✓ keychain' : '—')}
+              <span className="row-name">{identity.name}</span>
+              <span className="badge">{KIND_LABEL[identity.authKind]}</span>
+              <span className="row-meta">
+                {identity.privateKeyPath ?? (identity.hasSecret ? 'Secret đã lưu trong keychain' : 'Không cần secret')}
               </span>
-              <span className="ident-tools">
+              <span className="row-tools">
                 <button
                   onClick={() => {
                     setDraft(identity)
                     setSecret('')
                   }}
-                >
-                  ✎
+                 className="btn-quiet">
+                  Sửa
                 </button>
-                <button onClick={() => void deleteIdentity(identity.id)}>🗑</button>
+                <button className="btn-quiet" onClick={() => void deleteIdentity(identity.id)}>Xoá</button>
               </span>
             </li>
           ))}
@@ -153,10 +149,7 @@ export function IdentityDialog({ onClose }: Props) {
             <button type="button" onClick={reset}>
               Làm mới form
             </button>
-            <button type="button" onClick={onClose}>
-              Đóng
-            </button>
-            <button type="submit" className="primary">
+            <button type="submit" className="btn-primary">
               {draft.id ? 'Cập nhật' : 'Thêm'}
             </button>
           </footer>

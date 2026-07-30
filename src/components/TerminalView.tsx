@@ -133,8 +133,8 @@ export function TerminalView({
   useEffect(() => {
     if (!closedReason) return
     termRef.current?.write(
-      `\r\n\x1b[38;5;244m— session đã đóng (${closedReason}). ` +
-        `Nhấn phím bất kỳ để kết nối lại —\x1b[0m\r\n`,
+      `\r\n\x1b[38;5;244m[ session đã đóng: ${closedReason}. ` +
+        `Nhấn phím bất kỳ để kết nối lại ]\x1b[0m\r\n`,
     )
   }, [closedReason])
 
@@ -167,15 +167,28 @@ export function TerminalView({
           <input
             autoFocus
             value={query}
-            placeholder="Tìm trong buffer…"
+            placeholder="Tìm trong buffer"
+            aria-label="Từ khoá tìm trong buffer"
             onChange={(e) => setQuery(e.target.value)}
           />
-          <button type="button" onClick={() => searchRef.current?.findPrevious(query)}>
-            ↑
+          <button
+            type="button"
+            className="btn-outline"
+            aria-label="Kết quả trước"
+            onClick={() => searchRef.current?.findPrevious(query)}
+          >
+            Trước
           </button>
-          <button type="submit">↓</button>
-          <button type="button" onClick={() => setSearchOpen(false)}>
-            ✕
+          <button type="submit" className="btn-outline">
+            Tiếp
+          </button>
+          <button
+            type="button"
+            className="btn-quiet"
+            aria-label="Đóng tìm kiếm"
+            onClick={() => setSearchOpen(false)}
+          >
+            Đóng
           </button>
         </form>
       )}

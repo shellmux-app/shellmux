@@ -317,6 +317,26 @@ impl Vault {
         Ok(row)
     }
 
+    pub fn list_known_hosts(&self) -> AppResult<Vec<KnownHost>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT host, port, algo, fingerprint, added_at
+             FROM known_hosts ORDER BY host, port",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(KnownHost {
+                    host: r.get(0)?,
+                    port: r.get::<_, i64>(1)? as u16,
+                    algo: r.get(2)?,
+                    fingerprint: r.get(3)?,
+                    added_at: r.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     pub fn put_known_host(&self, host: &str, port: u16, algo: &str, fp: &str) -> AppResult<()> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

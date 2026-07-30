@@ -71,7 +71,7 @@ export function HostDialog({ host, onClose }: Props) {
               value={draft.groupId ?? ''}
               onChange={(e) => patch({ groupId: e.target.value || null })}
             >
-              <option value="">— không —</option>
+              <option value="">Không thuộc nhóm nào</option>
               {groups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.name}
@@ -113,7 +113,7 @@ export function HostDialog({ host, onClose }: Props) {
               value={draft.identityId ?? ''}
               onChange={(e) => patch({ identityId: e.target.value || null })}
             >
-              <option value="">— ssh-agent —</option>
+              <option value="">Dùng ssh-agent</option>
               {identities.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.name} ({i.authKind})
@@ -127,7 +127,7 @@ export function HostDialog({ host, onClose }: Props) {
               value={draft.jumpHostId ?? ''}
               onChange={(e) => patch({ jumpHostId: e.target.value || null })}
             >
-              <option value="">— trực tiếp —</option>
+              <option value="">Kết nối trực tiếp</option>
               {jumpCandidates.map((h) => (
                 <option key={h.id} value={h.id}>
                   {h.label}
@@ -141,7 +141,7 @@ export function HostDialog({ host, onClose }: Props) {
               value={draft.theme ?? ''}
               onChange={(e) => patch({ theme: e.target.value || null })}
             >
-              <option value="">— mặc định —</option>
+              <option value="">Theo chủ đề của app</option>
               {THEMES.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -174,7 +174,7 @@ export function HostDialog({ host, onClose }: Props) {
           <button type="button" onClick={onClose}>
             Huỷ
           </button>
-          <button type="submit" className="primary">
+          <button type="submit" className="btn-primary">
             Lưu
           </button>
         </footer>
