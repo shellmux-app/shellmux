@@ -29,6 +29,7 @@ pub async fn ssh_connect(
         app,
         link.clone(),
         session_id.clone(),
+        0,
         cols.max(2),
         rows.max(2),
     )
@@ -57,6 +58,7 @@ pub fn local_open(
     let tx = local::start(
         app,
         session_id.clone(),
+        0,
         shell_path,
         cwd,
         cols.max(2),
@@ -121,6 +123,62 @@ pub async fn session_close(
 #[tauri::command]
 pub fn session_list(state: State<'_, AppState>) -> AppResult<Vec<SessionInfo>> {
     Ok(state.sessions.list())
+}
+
+/// Kết nối lại một session đã rớt mà **giữ nguyên session id**, nên pane và
+/// scrollback phía UI không bị dựng lại. Ý tưởng lấy từ `reconnect()` của
+/// Tabby (`ConnectableTerminalTabComponent`).
+#[tauri::command]
+pub async fn session_reconnect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> AppResult<SessionInfo> {
+    let info = state.sessions.info(&session_id)?;
+
+    // Tunnel và SFTP bám vào connection cũ — phải dọn trước khi thay.
+    state.tunnels.stop_for_session(&app, &session_id).await;
+    state.sftp.close(&session_id).await;
+
+    let generation = state.sessions.detach(&session_id).await?;
+
+    match info.kind {
+        SessionKind::Ssh => {
+            let host_id = info
+                .host_id
+                .clone()
+                .ok_or_else(|| AppError::Invalid("session SSH thiếu host".into()))?;
+            let link = ssh::connect_host(state.vault.clone(), &host_id).await?;
+            let tx = shell::start(
+                app,
+                link.clone(),
+                session_id.clone(),
+                generation,
+                cols.max(2),
+                rows.max(2),
+            )
+            .await?;
+            state
+                .sessions
+                .reattach(&session_id, tx, Some(link), generation)?;
+        }
+        SessionKind::Local => {
+            let tx = local::start(
+                app,
+                session_id.clone(),
+                generation,
+                None,
+                None,
+                cols.max(2),
+                rows.max(2),
+            )?;
+            state.sessions.reattach(&session_id, tx, None, generation)?;
+        }
+    }
+
+    Ok(info)
 }
 
 /// Gửi một snippet tới nhiều session cùng lúc (broadcast).

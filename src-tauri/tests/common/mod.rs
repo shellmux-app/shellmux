@@ -1,3 +1,6 @@
+//! Shared test fixtures. Mỗi test binary chỉ dùng một phần nên tắt cảnh báo.
+#![allow(dead_code)]
+
 //! SSH server chạy trong process cho các test tích hợp.
 //!
 //! Không có test nào cần network thật hay máy remote: mỗi test spawn một server

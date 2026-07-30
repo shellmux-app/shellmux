@@ -17,6 +17,7 @@ const READ_CHUNK: usize = 32 * 1024;
 pub fn start(
     app: AppHandle,
     session_id: String,
+    generation: u64,
     shell: Option<String>,
     cwd: Option<String>,
     cols: u16,
@@ -86,6 +87,7 @@ pub fn start(
             ClosedEvent {
                 session_id: reader_id,
                 reason,
+                generation,
             },
         );
     });

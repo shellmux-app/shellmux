@@ -216,6 +216,17 @@ code {
   font-style: italic;
 }
 
+.import-note {
+  margin: 0 10px 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
 /* ---------------------------------------------------------------- workspace */
 
 .workspace {

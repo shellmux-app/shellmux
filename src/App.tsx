@@ -28,7 +28,9 @@ export default function App() {
   useEffect(() => {
     startBus()
     void load()
-    return onSessionClosed((sessionId, reason) => markClosed(sessionId, reason))
+    return onSessionClosed((sessionId, reason, generation) =>
+      markClosed(sessionId, reason, generation),
+    )
   }, [load, markClosed])
 
   const close = () => setOverlay({ kind: 'none' })

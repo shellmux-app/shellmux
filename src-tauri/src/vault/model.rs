@@ -89,6 +89,8 @@ pub enum TunnelKind {
     Local,
     /// -R: cổng trên remote → dịch vụ phía máy mình.
     Remote,
+    /// -D: SOCKS5 proxy local, đích do từng kết nối tự khai.
+    Dynamic,
 }
 
 impl TunnelKind {
@@ -96,12 +98,14 @@ impl TunnelKind {
         match self {
             TunnelKind::Local => "local",
             TunnelKind::Remote => "remote",
+            TunnelKind::Dynamic => "dynamic",
         }
     }
 
     pub fn from_str(s: &str) -> Self {
         match s {
             "remote" => TunnelKind::Remote,
+            "dynamic" => TunnelKind::Dynamic,
             _ => TunnelKind::Local,
         }
     }

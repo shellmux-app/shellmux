@@ -20,6 +20,7 @@ pub async fn start(
     app: AppHandle,
     link: Arc<SshLink>,
     session_id: String,
+    generation: u64,
     cols: u16,
     rows: u16,
 ) -> AppResult<mpsc::Sender<Outbound>> {
@@ -38,6 +39,7 @@ pub async fn start(
             ClosedEvent {
                 session_id,
                 reason,
+                generation,
             },
         );
         // Giữ link tới cuối vòng đời session: drop sớm là đóng connection.

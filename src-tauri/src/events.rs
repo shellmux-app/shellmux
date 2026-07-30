@@ -18,6 +18,10 @@ pub struct DataEvent {
 pub struct ClosedEvent {
     pub session_id: String,
     pub reason: String,
+    /// Số lần session này đã được kết nối lại. Sau khi reconnect, pump cũ vẫn
+    /// còn đang tắt và sẽ phát event closed muộn — frontend so generation để
+    /// bỏ qua nó thay vì đánh dấu session mới là đã chết.
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]

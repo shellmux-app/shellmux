@@ -73,10 +73,15 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
     }
   }
 
-  const describeSpec = (spec: TunnelSpec) =>
-    spec.kind === 'local'
-      ? `${spec.bindAddr}:${spec.bindPort} → ${spec.targetHost}:${spec.targetPort} (remote)`
-      : `remote ${spec.bindAddr}:${spec.bindPort} → ${spec.targetHost}:${spec.targetPort} (local)`
+  const describeSpec = (spec: TunnelSpec) => {
+    if (spec.kind === 'dynamic') {
+      return `SOCKS5 ${spec.bindAddr}:${spec.bindPort} → đích tuỳ từng kết nối`
+    }
+    if (spec.kind === 'local') {
+      return `${spec.bindAddr}:${spec.bindPort} → ${spec.targetHost}:${spec.targetPort} (remote)`
+    }
+    return `remote ${spec.bindAddr}:${spec.bindPort} → ${spec.targetHost}:${spec.targetPort} (local)`
+  }
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -115,6 +120,7 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
               >
                 <option value="local">Local (-L)</option>
                 <option value="remote">Remote (-R)</option>
+                <option value="dynamic">Dynamic — SOCKS5 (-D)</option>
               </select>
             </label>
             <label>
@@ -134,23 +140,28 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
                 onChange={(e) => patch({ bindPort: Number(e.target.value) || 0 })}
               />
             </label>
-            <label>
-              Target host
-              <input
-                value={draft.targetHost}
-                onChange={(e) => patch({ targetHost: e.target.value })}
-              />
-            </label>
-            <label>
-              Target port
-              <input
-                type="number"
-                min={1}
-                max={65535}
-                value={draft.targetPort}
-                onChange={(e) => patch({ targetPort: Number(e.target.value) || 80 })}
-              />
-            </label>
+            {/* Dynamic không có đích cố định — mỗi kết nối SOCKS tự khai đích. */}
+            {draft.kind !== 'dynamic' && (
+              <>
+                <label>
+                  Target host
+                  <input
+                    value={draft.targetHost}
+                    onChange={(e) => patch({ targetHost: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Target port
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={draft.targetPort}
+                    onChange={(e) => patch({ targetPort: Number(e.target.value) || 80 })}
+                  />
+                </label>
+              </>
+            )}
           </div>
 
           {status && <p className="hint">{status}</p>}

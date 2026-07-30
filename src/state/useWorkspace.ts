@@ -31,6 +31,9 @@ export interface Tab {
 
 export interface TrackedSession extends SessionInfo {
   closedReason: string | null
+  /** Tăng mỗi lần reconnect; dùng để bỏ qua event closed đến muộn. */
+  generation: number
+  reconnecting: boolean
 }
 
 export interface HostKeyPrompt {
@@ -61,7 +64,8 @@ interface WorkspaceState {
   focusPane: (tabId: string, paneId: string) => void
   closePane: (tabId: string, paneId: string) => Promise<void>
   closeTab: (tabId: string) => Promise<void>
-  markClosed: (sessionId: string, reason: string) => void
+  markClosed: (sessionId: string, reason: string, generation: number) => void
+  reconnect: (sessionId: string, cols: number, rows: number) => Promise<void>
   dismissHostKeyPrompt: () => void
   setBroadcast: (on: boolean) => void
   clearError: () => void
@@ -102,7 +106,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         activeTabId: tab.id,
         sessions: {
           ...get().sessions,
-          [session.id]: { ...session, closedReason: null },
+          [session.id]: {
+            ...session,
+            closedReason: null,
+            generation: 0,
+            reconnecting: false,
+          },
         },
         error: null,
       })
@@ -150,7 +159,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         activeTabId: tab.id,
         sessions: {
           ...get().sessions,
-          [session.id]: { ...session, closedReason: null },
+          [session.id]: {
+            ...session,
+            closedReason: null,
+            generation: 0,
+            reconnecting: false,
+          },
         },
         error: null,
       })
@@ -255,15 +269,60 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  markClosed: (sessionId, reason) => {
+  markClosed: (sessionId, reason, generation) => {
     const existing = get().sessions[sessionId]
     if (!existing) return
+    // Pump của lần kết nối trước tắt muộn hơn lần reconnect mới — event của nó
+    // mang generation cũ và phải bị bỏ qua, nếu không session vừa sống lại sẽ
+    // bị đánh dấu là đã chết.
+    if (generation < existing.generation) return
     set({
       sessions: {
         ...get().sessions,
-        [sessionId]: { ...existing, closedReason: reason },
+        [sessionId]: { ...existing, closedReason: reason, reconnecting: false },
       },
     })
+  },
+
+  reconnect: async (sessionId, cols, rows) => {
+    const existing = get().sessions[sessionId]
+    if (!existing || existing.reconnecting) return
+
+    set({
+      sessions: {
+        ...get().sessions,
+        [sessionId]: { ...existing, reconnecting: true },
+      },
+    })
+
+    try {
+      await sessionApi.reconnect(sessionId, cols, rows)
+      const current = get().sessions[sessionId]
+      if (!current) return
+      set({
+        sessions: {
+          ...get().sessions,
+          [sessionId]: {
+            ...current,
+            closedReason: null,
+            reconnecting: false,
+            generation: current.generation + 1,
+          },
+        },
+        error: null,
+      })
+    } catch (e) {
+      const current = get().sessions[sessionId]
+      set({
+        error: describe(e),
+        sessions: current
+          ? {
+              ...get().sessions,
+              [sessionId]: { ...current, reconnecting: false },
+            }
+          : get().sessions,
+      })
+    }
   },
 
   dismissHostKeyPrompt: () => set({ hostKeyPrompt: null }),

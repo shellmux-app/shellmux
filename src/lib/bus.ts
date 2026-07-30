@@ -10,6 +10,8 @@ interface DataEvent {
 interface ClosedEvent {
   sessionId: string
   reason: string
+  /** Pump cũ có thể phát event muộn sau khi đã reconnect — xem store. */
+  generation: number
 }
 
 interface TunnelEvent {
@@ -20,7 +22,7 @@ interface TunnelEvent {
 }
 
 type Writer = (bytes: Uint8Array) => void
-type CloseHandler = (sessionId: string, reason: string) => void
+type CloseHandler = (sessionId: string, reason: string, generation: number) => void
 type TunnelHandler = (event: TunnelEvent) => void
 
 /**
@@ -44,8 +46,8 @@ export function startBus(): void {
   })
 
   void listen<ClosedEvent>('session:closed', (event) => {
-    const { sessionId, reason } = event.payload
-    closeHandlers.forEach((handler) => handler(sessionId, reason))
+    const { sessionId, reason, generation } = event.payload
+    closeHandlers.forEach((handler) => handler(sessionId, reason, generation))
   })
 
   void listen<TunnelEvent>('tunnel:state', (event) => {

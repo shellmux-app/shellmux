@@ -161,14 +161,68 @@ describe('markClosed', () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
 
-    useWorkspace.getState().markClosed('s1', 'exit status 0')
+    useWorkspace.getState().markClosed('s1', 'exit status 0', 0)
 
     expect(useWorkspace.getState().sessions.s1.closedReason).toBe('exit status 0')
   })
 
   it('bỏ qua session không tồn tại thay vì tạo entry rỗng', () => {
-    useWorkspace.getState().markClosed('không-có', 'eof')
+    useWorkspace.getState().markClosed('không-có', 'eof', 0)
 
     expect(useWorkspace.getState().sessions).toEqual({})
+  })
+
+  it('bỏ qua event closed đến muộn từ lần kết nối trước', async () => {
+    mockConnect('s1')
+    await useWorkspace.getState().openSsh('h1')
+    await useWorkspace.getState().reconnect('s1', 80, 24)
+
+    // Pump của generation 0 tắt muộn và mới phát event bây giờ.
+    useWorkspace.getState().markClosed('s1', 'eof', 0)
+
+    expect(useWorkspace.getState().sessions.s1.closedReason).toBeNull()
+  })
+})
+
+describe('reconnect', () => {
+  it('xoá trạng thái đã đóng và tăng generation', async () => {
+    mockConnect('s1')
+    await useWorkspace.getState().openSsh('h1')
+    useWorkspace.getState().markClosed('s1', 'eof', 0)
+
+    await useWorkspace.getState().reconnect('s1', 120, 40)
+
+    const session = useWorkspace.getState().sessions.s1
+    expect(session.closedReason).toBeNull()
+    expect(session.generation).toBe(1)
+    expect(session.reconnecting).toBe(false)
+    expect(invoke).toHaveBeenCalledWith('session_reconnect', {
+      sessionId: 's1',
+      cols: 120,
+      rows: 40,
+    })
+  })
+
+  it('giữ nguyên session id để pane không phải dựng lại', async () => {
+    mockConnect('s1')
+    await useWorkspace.getState().openSsh('h1')
+    const paneBefore = useWorkspace.getState().tabs[0].panes[0]
+
+    await useWorkspace.getState().reconnect('s1', 80, 24)
+
+    const paneAfter = useWorkspace.getState().tabs[0].panes[0]
+    expect(paneAfter.id).toBe(paneBefore.id)
+    expect(paneAfter.sessionId).toBe('s1')
+  })
+
+  it('báo lỗi và thôi cờ reconnecting khi kết nối lại thất bại', async () => {
+    mockConnect('s1')
+    await useWorkspace.getState().openSsh('h1')
+    invoke.mockRejectedValue({ message: 'connection refused', kind: 'generic', data: null })
+
+    await useWorkspace.getState().reconnect('s1', 80, 24)
+
+    expect(useWorkspace.getState().error).toBe('connection refused')
+    expect(useWorkspace.getState().sessions.s1.reconnecting).toBe(false)
   })
 })

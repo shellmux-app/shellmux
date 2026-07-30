@@ -80,12 +80,33 @@ export const sessionApi = {
   resize: (sessionId: string, cols: number, rows: number) =>
     invoke<void>('session_resize', { sessionId, cols, rows }),
   close: (sessionId: string) => invoke<void>('session_close', { sessionId }),
+  /** Kết nối lại tại chỗ: giữ nguyên sessionId nên pane không bị dựng lại. */
+  reconnect: (sessionId: string, cols: number, rows: number) =>
+    invoke<SessionInfo>('session_reconnect', { sessionId, cols, rows }),
   list: () => invoke<SessionInfo[]>('session_list'),
   sendSnippet: (sessionIds: string[], snippetId: string) =>
     invoke<number>('snippet_send', { sessionIds, snippetId }),
 }
 
 // --------------------------------------------------------------------- sftp
+
+// --------------------------------------------------------------- ssh config
+
+export interface ImportReport {
+  hosts: number
+  identities: number
+  jumpsLinked: number
+  unresolvedJumps: string[]
+  includesSkipped: number
+  wildcardBlocks: number
+  agentForwardIgnored: number
+}
+
+export const sshConfigApi = {
+  path: () => invoke<string | null>('ssh_config_path'),
+  import: (path?: string) =>
+    invoke<ImportReport>('import_ssh_config', { path: path ?? null }),
+}
 
 export const sftpApi = {
   list: (sessionId: string, path: string) =>

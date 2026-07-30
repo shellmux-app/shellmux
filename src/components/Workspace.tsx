@@ -21,6 +21,7 @@ export function Workspace({ onOpenTunnels }: Props) {
     splitActive,
     setDirection,
     setPaneView,
+    reconnect,
   } = useWorkspace()
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? null
@@ -90,9 +91,20 @@ export function Workspace({ onOpenTunnels }: Props) {
                 <header className="pane-head">
                   <span className="pane-title">
                     {session?.label ?? 'session'}
-                    {session?.closedReason && <em> · đã đóng</em>}
+                    {session?.reconnecting && <em> · đang kết nối lại…</em>}
+                    {session?.closedReason && !session.reconnecting && (
+                      <em> · đã đóng</em>
+                    )}
                   </span>
                   <span className="pane-tools">
+                    {session?.closedReason && !session.reconnecting && (
+                      <button
+                        className="primary"
+                        onClick={() => void reconnect(pane.sessionId, 80, 24)}
+                      >
+                        Kết nối lại
+                      </button>
+                    )}
                     <button
                       className={pane.view === 'terminal' ? 'on' : ''}
                       onClick={() => setPaneView(tab.id, pane.id, 'terminal')}
@@ -127,6 +139,9 @@ export function Workspace({ onOpenTunnels }: Props) {
                       themeId={host?.theme ?? null}
                       focused={isActive}
                       closedReason={session?.closedReason ?? null}
+                      onReconnect={(cols, rows) =>
+                        void reconnect(pane.sessionId, cols, rows)
+                      }
                     />
                   ) : (
                     <SftpPanel sessionId={pane.sessionId} />

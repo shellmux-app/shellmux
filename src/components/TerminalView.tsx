@@ -16,19 +16,33 @@ interface Props {
   themeId: string | null
   focused: boolean
   closedReason: string | null
+  onReconnect: (cols: number, rows: number) => void
 }
 
 const FONT_STACK = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace'
 const FONT_SIZE = 13
 const SCROLLBACK = 20000
 
-export function TerminalView({ sessionId, themeId, focused, closedReason }: Props) {
+export function TerminalView({
+  sessionId,
+  themeId,
+  focused,
+  closedReason,
+  onReconnect,
+}: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const searchRef = useRef<SearchAddon | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
+
+  // Ref thay vì dependency: terminal chỉ được dựng một lần cho mỗi session, và
+  // handler onData phải luôn thấy trạng thái mới nhất mà không phải tạo lại.
+  const closedRef = useRef<boolean>(false)
+  const onReconnectRef = useRef(onReconnect)
+  onReconnectRef.current = onReconnect
+  closedRef.current = closedReason !== null
 
   useEffect(() => {
     const container = hostRef.current
@@ -71,6 +85,12 @@ export function TerminalView({ sessionId, themeId, focused, closedReason }: Prop
 
     const encoder = new TextEncoder()
     const dataSub = term.onData((data) => {
+      // Khi session đã chết, phím bất kỳ nghĩa là "kết nối lại" chứ không phải
+      // input — giống cách Tabby mời reconnect.
+      if (closedRef.current) {
+        onReconnectRef.current(term.cols, term.rows)
+        return
+      }
       void sessionApi.write(sessionId, encoder.encode(data))
     })
     const binarySub = term.onBinary((data) => {
@@ -112,7 +132,10 @@ export function TerminalView({ sessionId, themeId, focused, closedReason }: Prop
 
   useEffect(() => {
     if (!closedReason) return
-    termRef.current?.write(`\r\n\x1b[38;5;244m— session đã đóng (${closedReason}) —\x1b[0m\r\n`)
+    termRef.current?.write(
+      `\r\n\x1b[38;5;244m— session đã đóng (${closedReason}). ` +
+        `Nhấn phím bất kỳ để kết nối lại —\x1b[0m\r\n`,
+    )
   }, [closedReason])
 
   useEffect(() => {

@@ -39,7 +39,7 @@ export interface Snippet {
   sendNewline: boolean
 }
 
-export type TunnelKind = 'local' | 'remote'
+export type TunnelKind = 'local' | 'remote' | 'dynamic'
 
 export interface TunnelSpec {
   id: string

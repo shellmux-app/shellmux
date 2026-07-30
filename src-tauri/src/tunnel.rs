@@ -8,6 +8,7 @@ use tokio::task::JoinHandle;
 use crate::error::{AppError, AppResult};
 use crate::events::{TunnelEvent, EV_TUNNEL};
 use crate::pipe::splice;
+use crate::socks;
 use crate::ssh::{RemoteTarget, SshLink};
 use crate::vault::{TunnelKind, TunnelSpec};
 
@@ -68,8 +69,11 @@ impl TunnelRegistry {
         }
 
         let port = match spec.kind {
-            TunnelKind::Local => {
-                self.start_local(app.clone(), session_id, link, spec).await?
+            // Local và Dynamic dùng chung một listener; khác nhau ở chỗ đích
+            // đến là cố định hay do từng kết nối SOCKS tự khai.
+            TunnelKind::Local | TunnelKind::Dynamic => {
+                self.start_listener(app.clone(), session_id, link, spec)
+                    .await?
             }
             TunnelKind::Remote => {
                 let target = RemoteTarget {
@@ -98,13 +102,14 @@ impl TunnelRegistry {
         Ok(port)
     }
 
-    async fn start_local(
+    async fn start_listener(
         &self,
         app: AppHandle,
         session_id: &str,
         link: Arc<SshLink>,
         spec: &TunnelSpec,
     ) -> AppResult<u16> {
+        let dynamic = spec.kind == TunnelKind::Dynamic;
         let listener = TcpListener::bind((spec.bind_addr.as_str(), spec.bind_port))
             .await
             .map_err(|e| AppError::Tunnel(format!("bind {}:{} — {e}", spec.bind_addr, spec.bind_port)))?;
@@ -132,21 +137,44 @@ impl TunnelRegistry {
                 let host = target_host.clone();
                 let id = tunnel_id.clone();
                 tokio::spawn(async move {
+                    let mut socket = socket;
+
+                    // Dynamic: đích lấy từ bắt tay SOCKS5 của chính kết nối này.
+                    let (host, port) = if dynamic {
+                        match socks::accept_connect(&mut socket).await {
+                            Ok(target) => (target.host, target.port),
+                            Err(e) => {
+                                log::warn!("tunnel {id}: SOCKS handshake lỗi — {e}");
+                                return;
+                            }
+                        }
+                    } else {
+                        (host, target_port)
+                    };
+
                     let channel = match link
-                        .open_direct_tcpip(
-                            &host,
-                            target_port,
-                            &origin.ip().to_string(),
-                            origin.port(),
-                        )
+                        .open_direct_tcpip(&host, port, &origin.ip().to_string(), origin.port())
                         .await
                     {
                         Ok(channel) => channel,
                         Err(e) => {
                             log::warn!("tunnel {id}: mở channel thất bại — {e}");
+                            // Chỉ báo OK cho client SOCKS *sau khi* channel mở
+                            // được, nếu không client tưởng đã kết nối xong.
+                            if dynamic {
+                                let _ = socks::reply_failure(&mut socket).await;
+                            }
                             return;
                         }
                     };
+
+                    if dynamic {
+                        if let Err(e) = socks::reply_success(&mut socket).await {
+                            log::warn!("tunnel {id}: không trả lời được SOCKS — {e}");
+                            return;
+                        }
+                    }
+
                     if let Err(e) = splice(channel, socket).await {
                         log::debug!("tunnel {id}: kết thúc — {e}");
                     }

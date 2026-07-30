@@ -39,6 +39,9 @@ struct Entry {
     info: SessionInfo,
     tx: mpsc::Sender<Outbound>,
     link: Option<Arc<SshLink>>,
+    /// Tăng mỗi lần reconnect. Pump cũ phát event closed muộn mang generation
+    /// cũ, nhờ đó frontend biết mà bỏ qua.
+    generation: u64,
 }
 
 /// Sổ ghi các session đang mở. Một session SSH = một connection; SFTP và
@@ -59,8 +62,64 @@ impl SessionManager {
         tx: mpsc::Sender<Outbound>,
         link: Option<Arc<SshLink>>,
     ) {
+        self.entries.insert(
+            info.id.clone(),
+            Entry {
+                info,
+                tx,
+                link,
+                generation: 0,
+            },
+        );
+    }
+
+    pub fn info(&self, session_id: &str) -> AppResult<SessionInfo> {
         self.entries
-            .insert(info.id.clone(), Entry { info, tx, link });
+            .get(session_id)
+            .map(|e| e.info.clone())
+            .ok_or_else(|| AppError::NoSession(session_id.to_string()))
+    }
+
+    pub fn generation(&self, session_id: &str) -> AppResult<u64> {
+        self.entries
+            .get(session_id)
+            .map(|e| e.generation)
+            .ok_or_else(|| AppError::NoSession(session_id.to_string()))
+    }
+
+    /// Gỡ transport cũ nhưng **giữ nguyên session id**, để terminal phía UI
+    /// không phải khởi tạo lại và không mất scrollback.
+    pub async fn detach(&self, session_id: &str) -> AppResult<u64> {
+        let (tx, link, generation) = {
+            let entry = self
+                .entries
+                .get(session_id)
+                .ok_or_else(|| AppError::NoSession(session_id.to_string()))?;
+            (entry.tx.clone(), entry.link.clone(), entry.generation)
+        };
+
+        let _ = tx.send(Outbound::Close).await;
+        if let Some(link) = link {
+            link.disconnect().await;
+        }
+        Ok(generation + 1)
+    }
+
+    pub fn reattach(
+        &self,
+        session_id: &str,
+        tx: mpsc::Sender<Outbound>,
+        link: Option<Arc<SshLink>>,
+        generation: u64,
+    ) -> AppResult<()> {
+        let mut entry = self
+            .entries
+            .get_mut(session_id)
+            .ok_or_else(|| AppError::NoSession(session_id.to_string()))?;
+        entry.tx = tx;
+        entry.link = link;
+        entry.generation = generation;
+        Ok(())
     }
 
     pub fn list(&self) -> Vec<SessionInfo> {

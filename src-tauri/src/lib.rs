@@ -4,7 +4,9 @@ pub mod events;
 pub mod pipe;
 pub mod session;
 pub mod sftp;
+pub mod socks;
 pub mod ssh;
+pub mod sshconfig;
 pub mod state;
 pub mod tunnel;
 pub mod vault;
@@ -55,6 +57,7 @@ pub fn run() {
             commands::session::session_resize,
             commands::session::session_close,
             commands::session::session_list,
+            commands::session::session_reconnect,
             commands::session::snippet_send,
             // sftp
             commands::sftp::sftp_list,
@@ -64,6 +67,9 @@ pub fn run() {
             commands::sftp::sftp_remove,
             commands::sftp::sftp_download,
             commands::sftp::sftp_upload,
+            // ssh config
+            commands::sshconfig::import_ssh_config,
+            commands::sshconfig::ssh_config_path,
             // tunnel
             commands::tunnel::tunnel_start,
             commands::tunnel::tunnel_stop,

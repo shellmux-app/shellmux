@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 
+import { sshConfigApi } from '../lib/ipc'
 import type { Group, Host } from '../lib/types'
-import { useVault } from '../state/useVault'
+import { describe, useVault } from '../state/useVault'
 
 interface Props {
   onConnect: (hostId: string) => void
@@ -24,9 +25,44 @@ export function Sidebar({
   onManageSnippets,
   onOpenLocal,
 }: Props) {
-  const { groups, hosts, saveGroup, deleteGroup, deleteHost } = useVault()
+  const { groups, hosts, saveGroup, deleteGroup, deleteHost, load } = useVault()
   const [needle, setNeedle] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [importing, setImporting] = useState(false)
+  const [importNote, setImportNote] = useState<string | null>(null)
+
+  /** Import ~/.ssh/config — chạy lại được nhiều lần, host cũ sẽ được cập nhật. */
+  const importSshConfig = async () => {
+    const path = await sshConfigApi.path().catch(() => null)
+    const ok = window.confirm(
+      `Import host từ ${path ?? '~/.ssh/config'}?\n\n` +
+        'Host đã import trước đó sẽ được cập nhật theo file, không tạo bản sao.',
+    )
+    if (!ok) return
+
+    setImporting(true)
+    try {
+      const report = await sshConfigApi.import()
+      await load()
+
+      const parts = [`${report.hosts} host`, `${report.identities} key`]
+      if (report.jumpsLinked > 0) parts.push(`${report.jumpsLinked} jump host`)
+      if (report.unresolvedJumps.length > 0) {
+        parts.push(`bỏ qua jump không rõ: ${report.unresolvedJumps.join(', ')}`)
+      }
+      if (report.includesSkipped > 0) {
+        parts.push(`${report.includesSkipped} chỉ thị Include chưa hỗ trợ`)
+      }
+      if (report.agentForwardIgnored > 0) {
+        parts.push(`${report.agentForwardIgnored} host dùng ForwardAgent (chưa hỗ trợ)`)
+      }
+      setImportNote(parts.join(' · '))
+    } catch (e) {
+      setImportNote(describe(e))
+    } finally {
+      setImporting(false)
+    }
+  }
 
   const visible = useMemo(() => hosts.filter((h) => matches(h, needle)), [hosts, needle])
 
@@ -155,9 +191,22 @@ export function Sidebar({
         )}
       </ul>
 
+      {importNote && (
+        <p className="import-note" onClick={() => setImportNote(null)}>
+          {importNote}
+        </p>
+      )}
+
       <div className="sidebar-foot">
         <button onClick={onManageIdentities}>Identities</button>
         <button onClick={onManageSnippets}>Snippets</button>
+        <button
+          onClick={() => void importSshConfig()}
+          disabled={importing}
+          title="Nạp host từ ~/.ssh/config"
+        >
+          {importing ? '…' : 'Import'}
+        </button>
       </div>
     </aside>
   )
