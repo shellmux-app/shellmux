@@ -1,0 +1,52 @@
+[package]
+name = "shellmux"
+version = "0.1.0"
+description = "Open-source SSH client & terminal"
+authors = ["Shellmux contributors"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.82"
+
+[lib]
+name = "shellmux_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "fs"] }
+# Backend `ring` thay cho `aws-lc-rs` mặc định: aws-lc-sys cần cmake, thêm một
+# dependency hệ thống cho mọi người build từ source.
+russh = { version = "0.62", default-features = false, features = ["flate2", "ring", "rsa"] }
+russh-sftp = "2.3"
+portable-pty = "0.9"
+rusqlite = { version = "0.40", features = ["bundled"] }
+keyring = "4"
+dashmap = "6"
+uuid = { version = "1", features = ["v4", "serde"] }
+base64 = "0.22"
+thiserror = "2"
+async-trait = "0.1"
+log = "0.4"
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+
+[dev-dependencies]
+tempfile = "3"
+# Cùng dòng rand mà ssh-key đang dùng, để `PrivateKey::random` nhận đúng
+# trait `CryptoRng`.
+rand = "0.10"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

@@ -1,0 +1,24 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+generated-images
+
+# Rust
+src-tauri/target
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Tauri generated ACL schemas
+src-tauri/gen/schemas
+tabby
+STATUS.md
+ARCHITECTURE.md
+BUILD.md    
+ROADMAP.md
+SECURITY.md
+README.md
