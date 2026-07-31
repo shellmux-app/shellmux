@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 import { vaultApi } from '../lib/ipc'
-import type { Group, Host, Identity, Snippet, TunnelSpec } from '../lib/types'
+import type { Group, Host, Identity, KnownHost, Snippet, TunnelSpec } from '../lib/types'
 
 /** Replace/insert one item and return a new array — never mutate the old one. */
 function upsert<T extends { id: string }>(list: T[], item: T): T[] {
@@ -20,6 +20,7 @@ interface VaultState {
   identities: Identity[]
   snippets: Snippet[]
   tunnels: TunnelSpec[]
+  knownHosts: KnownHost[]
   ready: boolean
   error: string | null
 
@@ -34,6 +35,8 @@ interface VaultState {
   deleteSnippet: (id: string) => Promise<void>
   saveTunnel: (tunnel: TunnelSpec) => Promise<TunnelSpec>
   deleteTunnel: (id: string) => Promise<void>
+  forgetKnownHost: (host: string, port: number) => Promise<void>
+  dismissError: () => void
 }
 
 export const useVault = create<VaultState>((set, get) => ({
@@ -42,19 +45,21 @@ export const useVault = create<VaultState>((set, get) => ({
   identities: [],
   snippets: [],
   tunnels: [],
+  knownHosts: [],
   ready: false,
   error: null,
 
   load: async () => {
     try {
-      const [groups, hosts, identities, snippets, tunnels] = await Promise.all([
+      const [groups, hosts, identities, snippets, tunnels, knownHosts] = await Promise.all([
         vaultApi.listGroups(),
         vaultApi.listHosts(),
         vaultApi.listIdentities(),
         vaultApi.listSnippets(),
         vaultApi.listTunnels(),
+        vaultApi.listKnownHosts(),
       ])
-      set({ groups, hosts, identities, snippets, tunnels, ready: true, error: null })
+      set({ groups, hosts, identities, snippets, tunnels, knownHosts, ready: true, error: null })
     } catch (e) {
       set({ ready: true, error: describe(e) })
     }
@@ -121,6 +126,15 @@ export const useVault = create<VaultState>((set, get) => ({
     await vaultApi.deleteTunnel(id)
     set({ tunnels: without(get().tunnels, id) })
   },
+
+  forgetKnownHost: async (host, port) => {
+    await vaultApi.forgetHostKey(host, port)
+    set({
+      knownHosts: get().knownHosts.filter((k) => !(k.host === host && k.port === port)),
+    })
+  },
+
+  dismissError: () => set({ error: null }),
 }))
 
 export function describe(e: unknown): string {

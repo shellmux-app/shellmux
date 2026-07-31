@@ -4,6 +4,7 @@ import {
   ArrowClockwiseIcon,
   ArrowRightIcon,
   ArrowUpIcon,
+  CircleNotchIcon,
   DownloadSimpleIcon,
   FolderPlusIcon,
   PencilSimpleIcon,
@@ -69,6 +70,11 @@ export function SftpPanel({ sessionId }: Props) {
   const [selected, setSelected] = useState<string | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
   const [loading, setLoading] = useState(true)
+  /** Key of the transfer/mutation currently in flight (e.g. `download:/etc/hosts`),
+   * or null. Uploads and downloads used to give zero feedback until they finished —
+   * this drives a spinner + disables the other mutating actions while one runs,
+   * since they share the session's single SFTP channel. */
+  const [busyAction, setBusyAction] = useState<string | null>(null)
 
   const refresh = useCallback(
     async (target: string) => {
@@ -93,28 +99,32 @@ export function SftpPanel({ sessionId }: Props) {
     void refresh('.')
   }, [refresh])
 
-  /** Run an operation then reload the listing, keeping error handling in one place. */
-  const run = async (action: () => Promise<string>) => {
+  /** Run an operation then reload the listing, keeping error handling and the
+   * busy indicator in one place. `key` identifies which control shows the spinner. */
+  const run = async (key: string, action: () => Promise<string>) => {
+    setBusyAction(key)
     try {
       const message = await action()
       setStatus({ text: message, isError: false })
       await refresh(path)
     } catch (e) {
       setStatus({ text: describe(e), isError: true })
+    } finally {
+      setBusyAction(null)
     }
   }
 
   const download = async (entry: RemoteEntry) => {
     const target = await saveDialog({ defaultPath: entry.name })
     if (!target) return
-    setLoading(true)
+    setBusyAction(`download:${entry.path}`)
     try {
       const bytes = await sftpApi.download(sessionId, entry.path, target)
       setStatus({ text: `Downloaded ${formatSize(bytes)} to ${target}`, isError: false })
     } catch (e) {
       setStatus({ text: describe(e), isError: true })
     } finally {
-      setLoading(false)
+      setBusyAction(null)
     }
   }
 
@@ -122,7 +132,7 @@ export function SftpPanel({ sessionId }: Props) {
     const picked = await openDialog({ multiple: false })
     if (typeof picked !== 'string') return
     const name = picked.split('/').pop() ?? 'upload.bin'
-    await run(async () => {
+    await run('upload', async () => {
       const bytes = await sftpApi.upload(sessionId, picked, `${path}/${name}`)
       return `Uploaded ${name} (${formatSize(bytes)})`
     })
@@ -137,7 +147,7 @@ export function SftpPanel({ sessionId }: Props) {
       confirmLabel: 'Create',
     })
     if (!name) return
-    await run(async () => {
+    await run('mkdir', async () => {
       await sftpApi.mkdir(sessionId, `${path}/${name}`)
       return `Created ${name}`
     })
@@ -151,7 +161,7 @@ export function SftpPanel({ sessionId }: Props) {
       confirmLabel: 'Rename',
     })
     if (!name || name === entry.name) return
-    await run(async () => {
+    await run(`rename:${entry.path}`, async () => {
       await sftpApi.rename(sessionId, entry.path, `${parentOf(entry.path)}/${name}`)
       return `Renamed to ${name}`
     })
@@ -167,7 +177,7 @@ export function SftpPanel({ sessionId }: Props) {
       danger: true,
     })
     if (!ok) return
-    await run(async () => {
+    await run(`remove:${entry.path}`, async () => {
       await sftpApi.remove(sessionId, entry.path, entry.isDir)
       return `Deleted ${entry.name}`
     })
@@ -199,13 +209,13 @@ export function SftpPanel({ sessionId }: Props) {
           <ArrowClockwiseIcon />
           Reload
         </button>
-        <button className="btn-outline" onClick={() => void mkdir()}>
-          <FolderPlusIcon />
+        <button className="btn-outline" onClick={() => void mkdir()} disabled={busyAction !== null}>
+          {busyAction === 'mkdir' ? <CircleNotchIcon className="spin" /> : <FolderPlusIcon />}
           New folder
         </button>
-        <button className="btn-primary" onClick={() => void upload()}>
-          <UploadSimpleIcon />
-          Upload
+        <button className="btn-primary" onClick={() => void upload()} disabled={busyAction !== null}>
+          {busyAction === 'upload' ? <CircleNotchIcon className="spin" /> : <UploadSimpleIcon />}
+          {busyAction === 'upload' ? 'Uploading…' : 'Upload'}
         </button>
       </header>
 
@@ -257,17 +267,41 @@ export function SftpPanel({ sessionId }: Props) {
                           Open
                         </button>
                       ) : (
-                        <button className="btn-quiet" onClick={() => void download(entry)}>
-                          <DownloadSimpleIcon />
-                          Download
+                        <button
+                          className="btn-quiet"
+                          onClick={() => void download(entry)}
+                          disabled={busyAction !== null}
+                        >
+                          {busyAction === `download:${entry.path}` ? (
+                            <CircleNotchIcon className="spin" />
+                          ) : (
+                            <DownloadSimpleIcon />
+                          )}
+                          {busyAction === `download:${entry.path}` ? 'Downloading…' : 'Download'}
                         </button>
                       )}
-                      <button className="btn-quiet" onClick={() => void rename(entry)}>
-                        <PencilSimpleIcon />
+                      <button
+                        className="btn-quiet"
+                        onClick={() => void rename(entry)}
+                        disabled={busyAction !== null}
+                      >
+                        {busyAction === `rename:${entry.path}` ? (
+                          <CircleNotchIcon className="spin" />
+                        ) : (
+                          <PencilSimpleIcon />
+                        )}
                         Rename
                       </button>
-                      <button className="btn-quiet" onClick={() => void remove(entry)}>
-                        <TrashIcon />
+                      <button
+                        className="btn-quiet"
+                        onClick={() => void remove(entry)}
+                        disabled={busyAction !== null}
+                      >
+                        {busyAction === `remove:${entry.path}` ? (
+                          <CircleNotchIcon className="spin" />
+                        ) : (
+                          <TrashIcon />
+                        )}
                         Delete
                       </button>
                     </span>

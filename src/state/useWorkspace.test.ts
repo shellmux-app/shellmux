@@ -12,7 +12,8 @@ function resetStore() {
     sessions: {},
     broadcast: false,
     hostKeyPrompt: null,
-    error: null,
+    errors: [],
+    connectingHostId: null,
   })
 }
 
@@ -85,7 +86,7 @@ describe('openSsh', () => {
     await useWorkspace.getState().openSsh('h1')
 
     expect(useWorkspace.getState().hostKeyPrompt).toBeNull()
-    expect(useWorkspace.getState().error).toBe('connection refused')
+    expect(useWorkspace.getState().errors.at(-1)?.message).toBe('connection refused')
   })
 })
 
@@ -222,7 +223,7 @@ describe('reconnect', () => {
 
     await useWorkspace.getState().reconnect('s1', 80, 24)
 
-    expect(useWorkspace.getState().error).toBe('connection refused')
+    expect(useWorkspace.getState().errors.at(-1)?.message).toBe('connection refused')
     expect(useWorkspace.getState().sessions.s1.reconnecting).toBe(false)
   })
 })

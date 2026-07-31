@@ -34,7 +34,10 @@ export function NavRail({ active, onSelect, counts, onImport }: Props) {
 
   return (
     <nav className="rail" aria-label="Main navigation">
-      <div className="rail-brand">
+      {/* Empty chrome above the nav buttons — the only part of the rail safe
+          to make a window-drag handle without swallowing button clicks. */}
+      <div className="rail-brand" data-tauri-drag-region>
+        <img className="rail-logo" src="/icon.png" alt="" aria-hidden width={22} height={22} />
         <h1>Shellmux</h1>
         <span className="rail-version">0.1.0</span>
       </div>

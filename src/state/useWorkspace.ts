@@ -11,6 +11,8 @@ import { describe } from './useVault'
 
 const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
+/** Caps the error toast stack so a burst of failures can't grow it unbounded. */
+const MAX_QUEUED_ERRORS = 4
 
 export type PaneView = 'terminal' | 'sftp'
 
@@ -46,6 +48,11 @@ export interface HostKeyPrompt {
   previous: string | null
 }
 
+export interface WorkspaceError {
+  id: string
+  message: string
+}
+
 interface WorkspaceState {
   tabs: Tab[]
   activeTabId: string | null
@@ -53,7 +60,12 @@ interface WorkspaceState {
   /** When on, snippets are sent to every open pane, not just the active one. */
   broadcast: boolean
   hostKeyPrompt: HostKeyPrompt | null
-  error: string | null
+  /** A stack, not a single slot — two failures close together (e.g. a tab
+   * close and a reconnect) would otherwise silently overwrite each other. */
+  errors: WorkspaceError[]
+  /** Host currently being dialed — lets the UI show a spinner instead of
+   * jumping straight from click to either a terminal or an error. */
+  connectingHostId: string | null
 
   openSsh: (hostId: string) => Promise<void>
   openLocal: () => Promise<void>
@@ -68,8 +80,12 @@ interface WorkspaceState {
   reconnect: (sessionId: string, cols: number, rows: number) => Promise<void>
   dismissHostKeyPrompt: () => void
   setBroadcast: (on: boolean) => void
-  clearError: () => void
+  dismissError: (id: string) => void
   activeSessionIds: () => string[]
+}
+
+function pushError(errors: WorkspaceError[], message: string): WorkspaceError[] {
+  return [...errors, { id: uid(), message }].slice(-MAX_QUEUED_ERRORS)
 }
 
 const uid = () => crypto.randomUUID()
@@ -95,9 +111,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   sessions: {},
   broadcast: false,
   hostKeyPrompt: null,
-  error: null,
+  errors: [],
+  connectingHostId: null,
 
   openSsh: async (hostId) => {
+    set({ connectingHostId: hostId })
     try {
       const session = await sessionApi.connect(hostId, DEFAULT_COLS, DEFAULT_ROWS)
       const tab = tabForSession(session)
@@ -113,7 +131,6 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
             reconnecting: false,
           },
         },
-        error: null,
       })
     } catch (e) {
       if (isIpcError(e) && e.kind === 'hostKeyUnknown' && e.data) {
@@ -146,7 +163,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         })
         return
       }
-      set({ error: describe(e) })
+      set({ errors: pushError(get().errors, describe(e)) })
+    } finally {
+      set({ connectingHostId: null })
     }
   },
 
@@ -166,10 +185,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
             reconnecting: false,
           },
         },
-        error: null,
       })
     } catch (e) {
-      set({ error: describe(e) })
+      set({ errors: pushError(get().errors, describe(e)) })
     }
   },
 
@@ -239,7 +257,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       try {
         await sessionApi.close(pane.sessionId)
       } catch (e) {
-        set({ error: describe(e) })
+        set({ errors: pushError(get().errors, describe(e)) })
       }
     }
 
@@ -309,12 +327,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
             generation: current.generation + 1,
           },
         },
-        error: null,
       })
     } catch (e) {
       const current = get().sessions[sessionId]
       set({
-        error: describe(e),
+        errors: pushError(get().errors, describe(e)),
         sessions: current
           ? {
               ...get().sessions,
@@ -327,7 +344,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   dismissHostKeyPrompt: () => set({ hostKeyPrompt: null }),
   setBroadcast: (on) => set({ broadcast: on }),
-  clearError: () => set({ error: null }),
+  dismissError: (id) => set({ errors: get().errors.filter((e) => e.id !== id) }),
 
   activeSessionIds: () => {
     const { tabs, activeTabId, broadcast } = get()

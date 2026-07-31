@@ -61,9 +61,11 @@ async fn try_agent(handle: &mut Handle<ShellmuxHandler>, user: &str) -> AppResul
         }
     }
 
-    Err(AppError::Auth(
-        "server rejected every key in ssh-agent".into(),
-    ))
+    Err(AppError::Auth(format!(
+        "server rejected every key in ssh-agent for user \"{user}\" — check that the \
+         username is correct (it's case-sensitive) and that a matching public key is in \
+         that user's ~/.ssh/authorized_keys"
+    )))
 }
 
 async fn try_private_key(
@@ -88,7 +90,9 @@ async fn try_private_key(
     match result {
         AuthResult::Success => Ok(()),
         AuthResult::Failure { .. } => Err(AppError::Auth(format!(
-            "server rejected key {path} for user {user}"
+            "server rejected key {path} for user \"{user}\" — check that the username is \
+             correct (it's case-sensitive) and that this key is in that user's \
+             ~/.ssh/authorized_keys"
         ))),
     }
 }
@@ -130,7 +134,10 @@ async fn keyboard_interactive(
         match response {
             Resp::Success => return Ok(()),
             Resp::Failure { .. } => {
-                return Err(AppError::Auth("password was rejected".into()));
+                return Err(AppError::Auth(format!(
+                    "password rejected for user \"{user}\" — check the username (it's \
+                     case-sensitive) and the password"
+                )));
             }
             Resp::InfoRequest { prompts, .. } => {
                 let answers = prompts.iter().map(|_| password.to_string()).collect();

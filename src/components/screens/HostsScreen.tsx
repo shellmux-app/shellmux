@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
+  CircleNotchIcon,
   FolderPlusIcon,
   MagnifyingGlassIcon,
   PencilSimpleIcon,
@@ -13,6 +14,7 @@ import { badgeColor, badgeText } from '../../lib/badge'
 import type { Group, Host } from '../../lib/types'
 import { useDialog } from '../../state/useDialog'
 import { useVault } from '../../state/useVault'
+import { useWorkspace } from '../../state/useWorkspace'
 
 interface Props {
   onConnect: (hostId: string) => void
@@ -34,6 +36,7 @@ function matches(host: Host, needle: string): boolean {
  */
 export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
   const { groups, hosts, saveGroup, deleteGroup, deleteHost } = useVault()
+  const connectingHostId = useWorkspace((s) => s.connectingHostId)
   const { ask, confirm } = useDialog()
   const [needle, setNeedle] = useState('')
   const [groupId, setGroupId] = useState<string | null>(null)
@@ -111,10 +114,14 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
           <button
             className="btn-primary"
             onClick={connectFirst}
-            disabled={visible.length === 0}
+            disabled={visible.length === 0 || connectingHostId !== null}
           >
-            <PlugIcon />
-            Connect
+            {connectingHostId !== null ? (
+              <CircleNotchIcon className="spin" />
+            ) : (
+              <PlugIcon />
+            )}
+            {connectingHostId !== null ? 'Connecting…' : 'Connect'}
           </button>
         </div>
 
@@ -198,12 +205,22 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
                 <button
                   className="card-text"
                   onClick={() => onConnect(host.id)}
+                  disabled={connectingHostId === host.id}
                   title={`Connect to ${host.username}@${host.hostname}`}
                 >
                   <span className="card-title">{host.label}</span>
                   <span className="card-sub">
-                    ssh, {host.username}
-                    {host.jumpHostId ? ', via jump host' : ''}
+                    {connectingHostId === host.id ? (
+                      <>
+                        <CircleNotchIcon className="spin" size={11} />
+                        Connecting…
+                      </>
+                    ) : (
+                      <>
+                        ssh, {host.username}
+                        {host.jumpHostId ? ', via jump host' : ''}
+                      </>
+                    )}
                   </span>
                 </button>
                 <span className="card-actions">

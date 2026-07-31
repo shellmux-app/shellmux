@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
-import { ArrowClockwiseIcon, MagnifyingGlassIcon, ProhibitIcon } from '@phosphor-icons/react'
+import { useState } from 'react'
+import { ArrowClockwiseIcon, CircleNotchIcon, MagnifyingGlassIcon, ProhibitIcon } from '@phosphor-icons/react'
 
-import { vaultApi } from '../../lib/ipc'
 import type { KnownHost } from '../../lib/types'
 import { useDialog } from '../../state/useDialog'
-import { describe } from '../../state/useVault'
+import { describe, useVault } from '../../state/useVault'
 
 /**
  * List of trusted host keys. This needs a place to view and revoke entries:
@@ -12,27 +11,20 @@ import { describe } from '../../state/useVault'
  * and confirm the new one — the app must never silently overwrite it.
  */
 export function KnownHostsScreen() {
+  const { knownHosts, ready, load, forgetKnownHost } = useVault()
   const { confirm } = useDialog()
-  const [items, setItems] = useState<KnownHost[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [needle, setNeedle] = useState('')
+  const [reloading, setReloading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const reload = async () => {
+    setReloading(true)
     try {
-      setItems(await vaultApi.listKnownHosts())
-      setError(null)
-    } catch (e) {
-      setError(describe(e))
+      await load()
     } finally {
-      setLoading(false)
+      setReloading(false)
     }
-  }, [])
-
-  useEffect(() => {
-    void load()
-  }, [load])
+  }
 
   const forget = async (entry: KnownHost) => {
     const ok = await confirm({
@@ -43,14 +35,14 @@ export function KnownHostsScreen() {
     })
     if (!ok) return
     try {
-      await vaultApi.forgetHostKey(entry.host, entry.port)
-      await load()
+      await forgetKnownHost(entry.host, entry.port)
+      setError(null)
     } catch (e) {
       setError(describe(e))
     }
   }
 
-  const visible = items.filter((entry) =>
+  const visible = knownHosts.filter((entry) =>
     `${entry.host} ${entry.fingerprint} ${entry.algo}`
       .toLowerCase()
       .includes(needle.toLowerCase()),
@@ -68,8 +60,8 @@ export function KnownHostsScreen() {
             onChange={(e) => setNeedle(e.target.value)}
           />
         </div>
-        <button className="btn-outline" onClick={() => void load()}>
-          <ArrowClockwiseIcon />
+        <button className="btn-outline" onClick={() => void reload()} disabled={reloading}>
+          {reloading ? <CircleNotchIcon className="spin" /> : <ArrowClockwiseIcon />}
           Reload
         </button>
       </div>
@@ -77,7 +69,7 @@ export function KnownHostsScreen() {
       <div className="screen-body">
         {error && <p className="error">{error}</p>}
 
-        {loading ? (
+        {!ready ? (
           <div className="skeleton-rows">
             {[70, 58, 64, 46].map((width, i) => (
               <div key={i} className="skeleton-row" style={{ width: `${width}%` }} />
@@ -104,9 +96,9 @@ export function KnownHostsScreen() {
           </ul>
         ) : (
           <div className="placeholder">
-            <strong>{items.length === 0 ? 'No trusted hosts yet' : 'No matches'}</strong>
+            <strong>{knownHosts.length === 0 ? 'No trusted hosts yet' : 'No matches'}</strong>
             <p>
-              {items.length === 0
+              {knownHosts.length === 0
                 ? 'The first time you connect to a server, Shellmux will show its fingerprint for you to confirm. Once trusted, it appears here.'
                 : 'Try a different search term.'}
             </p>

@@ -25,7 +25,15 @@ type Overlay =
   | { kind: 'tunnels'; sessionId: string; hostId: string }
 
 export default function App() {
-  const { hosts, identities, snippets, load, error: vaultError } = useVault()
+  const {
+    hosts,
+    identities,
+    snippets,
+    knownHosts,
+    load,
+    error: vaultError,
+    dismissError: dismissVaultError,
+  } = useVault()
   const initTheme = useTheme((s) => s.init)
   const confirm = useDialog((s) => s.confirm)
   const {
@@ -36,8 +44,8 @@ export default function App() {
     openSsh,
     openLocal,
     markClosed,
-    error,
-    clearError,
+    errors: workspaceErrors,
+    dismissError,
   } = useWorkspace()
 
   const [screen, setScreen] = useState<ScreenId>('hosts')
@@ -110,13 +118,15 @@ export default function App() {
             hosts: hosts.length,
             keychain: identities.length,
             snippets: snippets.length,
-            knownHosts: 0,
+            knownHosts: knownHosts.length,
           }}
           onImport={() => void importSshConfig()}
         />
 
         <main className="main">
-          <nav className="tabstrip">
+          {/* Empty space after the last tab is the only safe drag handle here —
+              individual tabs stay clickable since they're more specific targets. */}
+          <nav className="tabstrip" data-tauri-drag-region>
             <span
               className={`tab ${!inSession ? 'active' : ''}`}
               onClick={() => setInSession(false)}
@@ -192,19 +202,28 @@ export default function App() {
         <HostKeyPrompt />
         <DialogHost />
 
-        {note && (
-          <div className="toast" role="status" onClick={() => setNote(null)}>
-            <span>{note}</span>
-            <span className="toast-dismiss">Click to dismiss</span>
-          </div>
-        )}
+        <div className="toast-stack">
+          {note && (
+            <div className="toast" role="status" onClick={() => setNote(null)}>
+              <span>{note}</span>
+              <span className="toast-dismiss">Click to dismiss</span>
+            </div>
+          )}
 
-        {(error || vaultError) && (
-          <div className="toast" role="alert" onClick={clearError}>
-            <span>{error ?? vaultError}</span>
-            <span className="toast-dismiss">Click to dismiss</span>
-          </div>
-        )}
+          {vaultError && (
+            <div className="toast" role="alert" onClick={dismissVaultError}>
+              <span>{vaultError}</span>
+              <span className="toast-dismiss">Click to dismiss</span>
+            </div>
+          )}
+
+          {workspaceErrors.map((e) => (
+            <div key={e.id} className="toast" role="alert" onClick={() => dismissError(e.id)}>
+              <span>{e.message}</span>
+              <span className="toast-dismiss">Click to dismiss</span>
+            </div>
+          ))}
+        </div>
       </div>
     </IconContext.Provider>
   )
