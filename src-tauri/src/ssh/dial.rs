@@ -1,16 +1,18 @@
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dashmap::DashMap;
 use russh::client::{self, Handle};
 
-use super::handler::{ForwardRegistry, ObservedKey, ShellmuxHandler};
+use super::handler::{AgentRequested, ForwardRegistry, ObservedKey, ShellmuxHandler};
 use super::link::SshLink;
+use crate::agent::AgentBacking;
 use crate::error::{AppError, AppResult};
-use crate::ssh::auth::authenticate;
-use crate::vault::{Host, Vault};
+use crate::ssh::auth::{authenticate, decrypt_identity_key};
+use crate::vault::{AuthKind, Host, Identity, Vault};
 
 /// Guards against `jump_host_id` pointing in a circle or an absurdly long chain.
 const MAX_JUMPS: usize = 8;
@@ -20,6 +22,7 @@ struct Chain {
     handle: Handle<ShellmuxHandler>,
     parents: Vec<Handle<ShellmuxHandler>>,
     forwards: ForwardRegistry,
+    agent_requested: AgentRequested,
 }
 
 pub async fn connect_host(vault: Arc<Vault>, host_id: &str) -> AppResult<Arc<SshLink>> {
@@ -29,6 +32,7 @@ pub async fn connect_host(vault: Arc<Vault>, host_id: &str) -> AppResult<Arc<Ssh
         chain.handle,
         chain.parents,
         chain.forwards,
+        chain.agent_requested,
     )))
 }
 
@@ -51,12 +55,16 @@ fn dial(
 
         let observed: ObservedKey = Arc::new(Mutex::new(None));
         let forwards: ForwardRegistry = Arc::new(DashMap::new());
+        let agent_backing = resolve_agent_backing(&host, identity.as_ref());
+        let agent_requested: AgentRequested = Arc::new(AtomicBool::new(false));
         let handler = ShellmuxHandler::new(
             vault.clone(),
             host.hostname.clone(),
             host.port,
             observed.clone(),
             forwards.clone(),
+            agent_backing,
+            agent_requested.clone(),
         );
         let config = Arc::new(client::Config {
             keepalive_interval: Some(Duration::from_secs(KEEPALIVE_SECS)),
@@ -99,6 +107,7 @@ fn dial(
             handle,
             parents,
             forwards,
+            agent_requested,
         })
     })
 }
@@ -135,5 +144,33 @@ fn classify(
             fingerprint,
             algo,
         },
+    }
+}
+
+/// What to bridge this host's forwarded `auth-agent` channels to, mirroring
+/// however *this* connection itself authenticated: the system agent when
+/// that's what signed us in, or a copy of the one key we ourselves just
+/// decrypted when a saved key did. A password has nothing to forward.
+fn resolve_agent_backing(host: &Host, identity: Option<&Identity>) -> AgentBacking {
+    if !host.agent_forward {
+        return AgentBacking::None;
+    }
+
+    match host.auth_kind {
+        AuthKind::Agent => AgentBacking::System,
+        AuthKind::Key => match identity {
+            Some(identity) => match decrypt_identity_key(identity) {
+                Ok(key) => AgentBacking::Key(key),
+                Err(e) => {
+                    log::warn!(
+                        "agent forwarding for host {}: could not load its key: {e}",
+                        host.id
+                    );
+                    AgentBacking::None
+                }
+            },
+            None => AgentBacking::None,
+        },
+        AuthKind::Password => AgentBacking::None,
     }
 }

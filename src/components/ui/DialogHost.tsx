@@ -65,6 +65,8 @@ export function DialogHost() {
               <span className="field-label">{request.label}</span>
               <input
                 ref={inputRef}
+                type={request.masked ? 'password' : 'text'}
+                autoComplete="off"
                 autoFocus
                 value={value}
                 placeholder={request.placeholder}

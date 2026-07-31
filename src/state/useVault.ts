@@ -27,7 +27,7 @@ interface VaultState {
   load: () => Promise<void>
   saveGroup: (group: Group) => Promise<Group>
   deleteGroup: (id: string) => Promise<void>
-  saveHost: (host: Host) => Promise<Host>
+  saveHost: (host: Host, password?: string) => Promise<Host>
   deleteHost: (id: string) => Promise<void>
   saveIdentity: (identity: Identity, secret?: string) => Promise<Identity>
   deleteIdentity: (id: string) => Promise<void>
@@ -80,8 +80,8 @@ export const useVault = create<VaultState>((set, get) => ({
     })
   },
 
-  saveHost: async (host) => {
-    const saved = await vaultApi.saveHost(host)
+  saveHost: async (host, password) => {
+    const saved = await vaultApi.saveHost(host, password)
     set({ hosts: upsert(get().hosts, saved) })
     return saved
   },

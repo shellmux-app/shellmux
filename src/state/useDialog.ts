@@ -15,6 +15,8 @@ interface PromptOptions {
   placeholder?: string
   confirmLabel?: string
   hint?: string
+  /** Renders the input as `type="password"` — for passphrases, not names. */
+  masked?: boolean
 }
 
 interface ConfirmOptions {

@@ -1,10 +1,13 @@
+use std::sync::Arc;
+
 use base64::Engine;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+use crate::events::{TunnelEvent, EV_TUNNEL};
 use crate::session::{local, shell, Outbound, SessionInfo, SessionKind};
-use crate::ssh;
+use crate::ssh::{self, SshLink};
 use crate::state::AppState;
 
 fn decode(data: &str) -> AppResult<Vec<u8>> {
@@ -26,23 +29,72 @@ pub async fn ssh_connect(
 
     let session_id = Uuid::new_v4().to_string();
     let tx = shell::start(
-        app,
+        app.clone(),
         link.clone(),
         session_id.clone(),
         0,
         cols.max(2),
         rows.max(2),
+        host.agent_forward,
     )
     .await?;
 
     let info = SessionInfo {
-        id: session_id,
+        id: session_id.clone(),
         kind: SessionKind::Ssh,
-        host_id: Some(host_id),
+        host_id: Some(host_id.clone()),
         label: host.label,
     };
-    state.sessions.insert(info.clone(), tx, Some(link));
+    state.sessions.insert(info.clone(), tx, Some(link.clone()));
+
+    start_auto_tunnels(&app, &state, &host_id, &session_id, &link).await;
+
     Ok(info)
+}
+
+/// Starts every tunnel configured with `autoStart` for this host, now that its
+/// session is up. Best-effort and independent per tunnel: one failing to bind
+/// (e.g. the port is already taken) must not affect the others, and must not
+/// fail the connection that just succeeded — it's reported through the same
+/// `tunnel:state` event the manual Start button uses, so the UI surfaces it
+/// the same way instead of failing silently.
+async fn start_auto_tunnels(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    host_id: &str,
+    session_id: &str,
+    link: &Arc<SshLink>,
+) {
+    let tunnels = match state.vault.list_tunnels() {
+        Ok(t) => t,
+        Err(e) => {
+            log::warn!("could not load tunnels to auto-start for host {host_id}: {e}");
+            return;
+        }
+    };
+
+    for spec in tunnels
+        .into_iter()
+        .filter(|t| t.host_id == host_id && t.auto_start)
+    {
+        let tunnel_id = spec.id.clone();
+        if let Err(e) = state
+            .tunnels
+            .start(app.clone(), session_id, link.clone(), &spec)
+            .await
+        {
+            log::warn!("tunnel {tunnel_id} did not auto-start: {e}");
+            let _ = app.emit(
+                EV_TUNNEL,
+                TunnelEvent {
+                    tunnel_id,
+                    session_id: session_id.to_string(),
+                    active: false,
+                    message: Some(e.to_string()),
+                },
+            );
+        }
+    }
 }
 
 #[tauri::command]
@@ -125,6 +177,29 @@ pub fn session_list(state: State<'_, AppState>) -> AppResult<Vec<SessionInfo>> {
     Ok(state.sessions.list())
 }
 
+/// Starts writing everything the terminal displays to `path` (truncating it
+/// first). The path is chosen by the frontend, normally via a native save
+/// dialog — nothing here picks a location on the user's behalf.
+#[tauri::command]
+pub async fn session_start_logging(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> AppResult<()> {
+    state
+        .sessions
+        .send(&session_id, Outbound::StartLogging(path))
+        .await
+}
+
+#[tauri::command]
+pub async fn session_stop_logging(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> AppResult<()> {
+    state.sessions.send(&session_id, Outbound::StopLogging).await
+}
+
 /// Reconnects a dropped session while **keeping the same session id**, so the
 /// UI-side pane and scrollback don't get rebuilt. Idea borrowed from Tabby's
 /// `reconnect()` (`ConnectableTerminalTabComponent`).
@@ -151,18 +226,25 @@ pub async fn session_reconnect(
                 .clone()
                 .ok_or_else(|| AppError::Invalid("SSH session is missing a host".into()))?;
             let link = ssh::connect_host(state.vault.clone(), &host_id).await?;
+            let agent_forward = state.vault.get_host(&host_id)?.agent_forward;
             let tx = shell::start(
-                app,
+                app.clone(),
                 link.clone(),
                 session_id.clone(),
                 generation,
                 cols.max(2),
                 rows.max(2),
+                agent_forward,
             )
             .await?;
             state
                 .sessions
-                .reattach(&session_id, tx, Some(link), generation)?;
+                .reattach(&session_id, tx, Some(link.clone()), generation)?;
+
+            // The tunnels that were running before are gone with the old
+            // connection (stopped above, before `detach`) — bring back the
+            // ones the user marked as autoStart, same as on first connect.
+            start_auto_tunnels(&app, &state, &host_id, &session_id, &link).await;
         }
         SessionKind::Local => {
             let tx = local::start(

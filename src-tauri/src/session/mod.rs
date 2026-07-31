@@ -17,6 +17,12 @@ pub enum Outbound {
     Data(Vec<u8>),
     Resize { cols: u16, rows: u16 },
     Close,
+    /// Writes every byte the terminal displays to this file from now on
+    /// (truncating it first). Since the remote PTY echoes typed input back as
+    /// part of its output, this captures the same transcript a person watching
+    /// the screen would see, without a separate "log input" path.
+    StartLogging(String),
+    StopLogging,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

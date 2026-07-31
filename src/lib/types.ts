@@ -1,4 +1,6 @@
-export type AuthKind = 'agent' | 'privateKey' | 'password'
+/// How a host authenticates. Lives on the host, not on a shared credential:
+/// a password belongs to one account on one machine, a key is reused across many.
+export type AuthKind = 'agent' | 'password' | 'key'
 
 export interface Group {
   id: string
@@ -7,12 +9,13 @@ export interface Group {
   sort: number
 }
 
+/// A reusable private key. Carries no username on purpose — the same key is
+/// normally used with different accounts on different hosts.
 export interface Identity {
   id: string
   name: string
-  authKind: AuthKind
-  username: string | null
-  privateKeyPath: string | null
+  privateKeyPath: string
+  /** A passphrase for this key is in the OS keychain. Never the value itself. */
   hasSecret: boolean
 }
 
@@ -23,12 +26,40 @@ export interface Host {
   hostname: string
   port: number
   username: string
+  authKind: AuthKind
+  /** Which saved key to use. Only meaningful when `authKind` is `key`. */
   identityId: string | null
   jumpHostId: string | null
   theme: string | null
   colorTag: string | null
   notes: string | null
   sort: number
+  /** Forward this host's own auth (system agent, or this host's own key) to it. */
+  agentForward: boolean
+}
+
+/// What `inspect_key` made of a file — the app works this out itself rather
+/// than asking the user to declare the key type.
+export type KeyInfo =
+  | ({ kind: 'privateKey' } & PrivateKeyInfo)
+  | { kind: 'publicKey'; algorithm: string; comment: string | null; privateKeyGuess: string | null }
+  | { kind: 'certificate'; algorithm: string; keyId: string }
+  | { kind: 'unsupported'; reason: string }
+  | { kind: 'notAKey'; reason: string }
+  | { kind: 'unreadable'; reason: string }
+
+export interface PrivateKeyInfo {
+  /** Ready to display: `Ed25519`, `RSA 4096`, `ECDSA P-256`. */
+  label: string
+  /** Stable and lowercase, for grouping and icons — not for display. */
+  algorithmId: string
+  bits: number | null
+  /** OpenSSH's own format, e.g. `SHA256:Ll1t…`. */
+  fingerprint: string | null
+  comment: string | null
+  encrypted: boolean
+  format: string
+  warning: string | null
 }
 
 export interface Snippet {

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }))
 
-import { useWorkspace } from './useWorkspace'
+import { findParentSplit, flattenLeaves, useWorkspace } from './useWorkspace'
 
 function resetStore() {
   useWorkspace.setState({
@@ -14,6 +14,7 @@ function resetStore() {
     hostKeyPrompt: null,
     errors: [],
     connectingHostId: null,
+    loggingSessions: {},
   })
 }
 
@@ -40,8 +41,9 @@ describe('openSsh', () => {
 
     const { tabs, activeTabId, sessions } = useWorkspace.getState()
     expect(tabs).toHaveLength(1)
-    expect(tabs[0].panes).toHaveLength(1)
-    expect(tabs[0].panes[0].view).toBe('terminal')
+    expect(tabs[0].root.kind).toBe('leaf')
+    expect(flattenLeaves(tabs[0].root)).toHaveLength(1)
+    expect(flattenLeaves(tabs[0].root)[0].view).toBe('terminal')
     expect(activeTabId).toBe(tabs[0].id)
     expect(sessions.s1.closedReason).toBeNull()
   })
@@ -98,11 +100,44 @@ describe('split panes', () => {
     await useWorkspace.getState().splitActive('sftp')
 
     const tab = useWorkspace.getState().tabs[0]
-    expect(tab.panes).toHaveLength(2)
-    expect(tab.panes[1].view).toBe('sftp')
+    const leaves = flattenLeaves(tab.root)
+    expect(tab.root.kind).toBe('split')
+    expect(leaves).toHaveLength(2)
+    expect(leaves[1].view).toBe('sftp')
     // Core point: same session ⇒ SFTP does not open a second SSH connection.
-    expect(tab.panes[1].sessionId).toBe('s1')
-    expect(tab.activePaneId).toBe(tab.panes[1].id)
+    expect(leaves[1].sessionId).toBe('s1')
+    expect(tab.activePaneId).toBe(leaves[1].id)
+  })
+
+  it('splitting an already-split pane nests a new split instead of adding a sibling', async () => {
+    mockConnect('s1')
+    await useWorkspace.getState().openSsh('h1')
+    await useWorkspace.getState().splitActive('sftp') // now split into [terminal, sftp], sftp active
+
+    await useWorkspace.getState().splitActive('terminal')
+
+    const tab = useWorkspace.getState().tabs[0]
+    expect(tab.root.kind).toBe('split')
+    if (tab.root.kind !== 'split') throw new Error('unreachable')
+    // The root still has exactly 2 children — the second one became a nested split.
+    expect(tab.root.children).toHaveLength(2)
+    expect(tab.root.children[1].kind).toBe('split')
+    expect(flattenLeaves(tab.root)).toHaveLength(3)
+  })
+
+  it('toggleSplitDirection flips row<->col for the targeted split only', async () => {
+    mockConnect('s1')
+    await useWorkspace.getState().openSsh('h1')
+    await useWorkspace.getState().splitActive('sftp')
+    const tab = useWorkspace.getState().tabs[0]
+    if (tab.root.kind !== 'split') throw new Error('expected a split root')
+    expect(tab.root.direction).toBe('row')
+
+    useWorkspace.getState().toggleSplitDirection(tab.id, tab.root.id)
+
+    const updated = useWorkspace.getState().tabs[0]
+    if (updated.root.kind !== 'split') throw new Error('expected a split root')
+    expect(updated.root.direction).toBe('col')
   })
 
   it('closing one pane of a session still used by another pane does not close the session', async () => {
@@ -110,26 +145,111 @@ describe('split panes', () => {
     await useWorkspace.getState().openSsh('h1')
     await useWorkspace.getState().splitActive('sftp')
     const tab = useWorkspace.getState().tabs[0]
+    const sftpPane = flattenLeaves(tab.root)[1]
     invoke.mockClear()
 
-    await useWorkspace.getState().closePane(tab.id, tab.panes[1].id)
+    await useWorkspace.getState().closePane(tab.id, sftpPane.id)
 
     expect(invoke).not.toHaveBeenCalledWith('session_close', expect.anything())
-    expect(useWorkspace.getState().tabs[0].panes).toHaveLength(1)
+    const remaining = flattenLeaves(useWorkspace.getState().tabs[0].root)
+    expect(remaining).toHaveLength(1)
+    // The split collapses back down to a single leaf once only one child is left.
+    expect(useWorkspace.getState().tabs[0].root.kind).toBe('leaf')
   })
 
   it('closing the last pane closes the session and drops the tab', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
     const tab = useWorkspace.getState().tabs[0]
+    const pane = flattenLeaves(tab.root)[0]
     invoke.mockClear()
     invoke.mockResolvedValue(undefined)
 
-    await useWorkspace.getState().closePane(tab.id, tab.panes[0].id)
+    await useWorkspace.getState().closePane(tab.id, pane.id)
 
     expect(invoke).toHaveBeenCalledWith('session_close', { sessionId: 's1' })
     expect(useWorkspace.getState().tabs).toHaveLength(0)
     expect(useWorkspace.getState().activeTabId).toBeNull()
+  })
+})
+
+describe('closing tabs', () => {
+  /** Regression: focus used to move to the last remaining tab whenever a tab
+   * closed, so clicking the ✕ on a *background* tab yanked the user out of
+   * the session they were actually looking at. */
+  it('closing a background tab leaves the user on the tab they were viewing', async () => {
+    mockConnect('s1', 'h1')
+    await useWorkspace.getState().openSsh('h1')
+    mockConnect('s2', 'h2')
+    await useWorkspace.getState().openSsh('h2')
+    mockConnect('s3', 'h3')
+    await useWorkspace.getState().openSsh('h3')
+
+    const [t1, , t3] = useWorkspace.getState().tabs
+    useWorkspace.getState().focusTab(t1.id)
+    invoke.mockResolvedValue(undefined)
+
+    await useWorkspace.getState().closeTab(t3.id)
+
+    expect(useWorkspace.getState().activeTabId).toBe(t1.id)
+    expect(useWorkspace.getState().tabs).toHaveLength(2)
+  })
+
+  it('closing the tab in view moves focus to a remaining tab', async () => {
+    mockConnect('s1', 'h1')
+    await useWorkspace.getState().openSsh('h1')
+    mockConnect('s2', 'h2')
+    await useWorkspace.getState().openSsh('h2')
+
+    const [t1, t2] = useWorkspace.getState().tabs
+    useWorkspace.getState().focusTab(t2.id)
+    invoke.mockResolvedValue(undefined)
+
+    await useWorkspace.getState().closeTab(t2.id)
+
+    expect(useWorkspace.getState().activeTabId).toBe(t1.id)
+  })
+
+  /** Regression: the pane was removed only *after* awaiting the backend, so a
+   * second click during that window found it again and closed an already-gone
+   * session — surfacing an error toast for a successful close. */
+  it('closing the same pane twice concurrently only closes the session once', async () => {
+    mockConnect('s1')
+    await useWorkspace.getState().openSsh('h1')
+    const tab = useWorkspace.getState().tabs[0]
+    const pane = flattenLeaves(tab.root)[0]
+    invoke.mockClear()
+    invoke.mockResolvedValue(undefined)
+
+    await Promise.all([
+      useWorkspace.getState().closePane(tab.id, pane.id),
+      useWorkspace.getState().closePane(tab.id, pane.id),
+    ])
+
+    const closes = invoke.mock.calls.filter((c) => c[0] === 'session_close')
+    expect(closes).toHaveLength(1)
+    expect(useWorkspace.getState().errors).toEqual([])
+  })
+})
+
+describe('findParentSplit', () => {
+  it('returns null for the unsplit root — nothing to toggle yet', async () => {
+    mockConnect('s1')
+    await useWorkspace.getState().openSsh('h1')
+    const tab = useWorkspace.getState().tabs[0]
+
+    expect(findParentSplit(tab.root, tab.activePaneId)).toBeNull()
+  })
+
+  it('returns the split that directly contains the active pane', async () => {
+    mockConnect('s1')
+    await useWorkspace.getState().openSsh('h1')
+    await useWorkspace.getState().splitActive('sftp')
+    const tab = useWorkspace.getState().tabs[0]
+
+    const split = findParentSplit(tab.root, tab.activePaneId)
+
+    expect(split?.id).toBe(tab.root.id)
   })
 })
 
@@ -207,11 +327,11 @@ describe('reconnect', () => {
   it('keeps the same session id so the pane does not have to be rebuilt', async () => {
     mockConnect('s1')
     await useWorkspace.getState().openSsh('h1')
-    const paneBefore = useWorkspace.getState().tabs[0].panes[0]
+    const paneBefore = flattenLeaves(useWorkspace.getState().tabs[0].root)[0]
 
     await useWorkspace.getState().reconnect('s1', 80, 24)
 
-    const paneAfter = useWorkspace.getState().tabs[0].panes[0]
+    const paneAfter = flattenLeaves(useWorkspace.getState().tabs[0].root)[0]
     expect(paneAfter.id).toBe(paneBefore.id)
     expect(paneAfter.sessionId).toBe('s1')
   })

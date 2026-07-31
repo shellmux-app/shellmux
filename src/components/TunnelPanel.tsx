@@ -101,6 +101,11 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
             <li key={spec.id}>
               <span className={`dot ${active.includes(spec.id) ? 'on' : ''}`} aria-hidden />
               <span className="row-name">{spec.name}</span>
+              {spec.autoStart && (
+                <span className="badge" title="Starts automatically when this host connects">
+                  Auto
+                </span>
+              )}
               <code className="row-meta">{describeSpec(spec)}</code>
               <span className="row-tools">
                 <button className="btn-primary" onClick={() => void toggle(spec)}>
@@ -187,6 +192,15 @@ export function TunnelPanel({ sessionId, hostId, onClose }: Props) {
               </>
             )}
           </div>
+
+          <label className="inline">
+            <input
+              type="checkbox"
+              checked={draft.autoStart}
+              onChange={(e) => patch({ autoStart: e.target.checked })}
+            />
+            Start automatically when this host connects
+          </label>
 
           {status && <p className="hint">{status}</p>}
 

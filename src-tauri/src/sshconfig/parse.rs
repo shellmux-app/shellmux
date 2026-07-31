@@ -208,15 +208,7 @@ fn unquote(value: &str) -> &str {
         .unwrap_or(value)
 }
 
-fn expand_tilde(path: &str) -> String {
-    match path.strip_prefix("~/") {
-        Some(rest) => match std::env::var("HOME") {
-            Ok(home) => format!("{home}/{rest}"),
-            Err(_) => path.to_string(),
-        },
-        None => path.to_string(),
-    }
-}
+use crate::paths::expand_tilde;
 
 /// `ProxyJump` has the form `[user@]host[:port]`, and can be a multi-hop chain
 /// separated by commas — the first hop is where it connects to first.

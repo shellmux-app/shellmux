@@ -1,9 +1,9 @@
 [package]
 name = "shellmux"
 version = "0.1.0"
-description = "Open-source SSH client & terminal"
+description = "Source-available SSH client & terminal"
 authors = ["Shellmux contributors"]
-license = "MIT"
+license-file = "../LICENSE"
 edition = "2021"
 rust-version = "1.82"
 
@@ -23,6 +23,16 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-uti
 # dependency hệ thống cho mọi người build từ source.
 russh = { version = "0.62", default-features = false, features = ["flate2", "ring", "rsa"] }
 russh-sftp = "2.3"
+# Already in the dependency tree transitively via russh's own agent module;
+# listed directly so `agent.rs` can build the one-shot connection stream
+# `russh::keys::agent::server::serve` expects.
+futures = "0.3"
+# For encrypted vault export/import. `argon2` is already transitively pulled
+# in by `ssh-key`'s own passphrase handling — pinned to the same version so
+# cargo unifies instead of building two copies.
+chacha20poly1305 = "0.10"
+argon2 = "=0.6.0-rc.8"
+rand = "0.10"
 portable-pty = "0.9"
 rusqlite = { version = "0.40", features = ["bundled"] }
 keyring = "4"
@@ -42,9 +52,10 @@ window-vibrancy = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
-# Cùng dòng rand mà ssh-key đang dùng, để `PrivateKey::random` nhận đúng
-# trait `CryptoRng`.
-rand = "0.10"
+# Cargo unions features across [dependencies] and [dev-dependencies] for the
+# same crate, so this only enables `test` for test builds — the shipped app
+# never links `tauri::test`'s mock runtime.
+tauri = { version = "2.11", features = ["test"] }
 
 [features]
 default = ["custom-protocol"]

@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use super::model::*;
-use super::schema::{INIT_SQL, SCHEMA_VERSION};
+use super::schema::{INIT_SQL, MIGRATIONS, SCHEMA_VERSION};
 use crate::error::{AppError, AppResult};
 
 /// Metadata store. Does not hold secrets — only the `has_secret` flag.
@@ -20,10 +20,16 @@ impl Vault {
         }
         let conn = Connection::open(path)?;
         conn.execute_batch(INIT_SQL)?;
-        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        migrate(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
+    }
+
+    /// The on-disk schema version, after any migrations `open` applied.
+    pub fn schema_version(&self) -> AppResult<i64> {
+        let conn = self.lock()?;
+        Ok(conn.query_row("PRAGMA user_version", [], |r| r.get(0))?)
     }
 
     fn lock(&self) -> AppResult<std::sync::MutexGuard<'_, Connection>> {
@@ -69,11 +75,14 @@ impl Vault {
 
     // ------------------------------------------------------------ identities
 
+    /// Identities are keys only, so rows without a path — the agent/password
+    /// entries a pre-v2 vault may still hold — are filtered out rather than
+    /// deleted, leaving the migration reversible by restoring a file copy.
     pub fn list_identities(&self) -> AppResult<Vec<Identity>> {
         let conn = self.lock()?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, auth_kind, username, private_key_path, has_secret
-             FROM identities ORDER BY name",
+            "SELECT id, name, private_key_path, has_secret
+             FROM identities WHERE private_key_path IS NOT NULL ORDER BY name",
         )?;
         let rows = stmt
             .query_map([], map_identity)?
@@ -84,8 +93,8 @@ impl Vault {
     pub fn get_identity(&self, id: &str) -> AppResult<Identity> {
         let conn = self.lock()?;
         conn.query_row(
-            "SELECT id, name, auth_kind, username, private_key_path, has_secret
-             FROM identities WHERE id = ?1",
+            "SELECT id, name, private_key_path, has_secret
+             FROM identities WHERE id = ?1 AND private_key_path IS NOT NULL",
             params![id],
             map_identity,
         )
@@ -98,19 +107,14 @@ impl Vault {
 
     pub fn upsert_identity(&self, i: &Identity) -> AppResult<()> {
         let conn = self.lock()?;
+        // `auth_kind` is a legacy NOT NULL column kept for pre-v2 vaults; every
+        // identity written now is a key. See schema.rs.
         conn.execute(
             "INSERT INTO identities (id, name, auth_kind, username, private_key_path, has_secret)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             VALUES (?1, ?2, 'privateKey', NULL, ?3, ?4)
              ON CONFLICT(id) DO UPDATE SET
-                name = ?2, auth_kind = ?3, username = ?4, private_key_path = ?5, has_secret = ?6",
-            params![
-                i.id,
-                i.name,
-                i.auth_kind.as_str(),
-                i.username,
-                i.private_key_path,
-                i.has_secret as i64,
-            ],
+                name = ?2, private_key_path = ?3, has_secret = ?4",
+            params![i.id, i.name, i.private_key_path, i.has_secret as i64],
         )?;
         Ok(())
     }
@@ -135,8 +139,8 @@ impl Vault {
     pub fn list_hosts(&self) -> AppResult<Vec<Host>> {
         let conn = self.lock()?;
         let mut stmt = conn.prepare(
-            "SELECT id, group_id, label, hostname, port, username, identity_id,
-                    jump_host_id, theme, color_tag, notes, sort
+            "SELECT id, group_id, label, hostname, port, username, auth_kind, identity_id,
+                    jump_host_id, theme, color_tag, notes, sort, agent_forward
              FROM hosts ORDER BY sort, label",
         )?;
         let rows = stmt
@@ -148,8 +152,8 @@ impl Vault {
     pub fn get_host(&self, id: &str) -> AppResult<Host> {
         let conn = self.lock()?;
         conn.query_row(
-            "SELECT id, group_id, label, hostname, port, username, identity_id,
-                    jump_host_id, theme, color_tag, notes, sort
+            "SELECT id, group_id, label, hostname, port, username, auth_kind, identity_id,
+                    jump_host_id, theme, color_tag, notes, sort, agent_forward
              FROM hosts WHERE id = ?1",
             params![id],
             map_host,
@@ -164,13 +168,14 @@ impl Vault {
     pub fn upsert_host(&self, h: &Host) -> AppResult<()> {
         let conn = self.lock()?;
         conn.execute(
-            "INSERT INTO hosts (id, group_id, label, hostname, port, username, identity_id,
-                                jump_host_id, theme, color_tag, notes, sort)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            "INSERT INTO hosts (id, group_id, label, hostname, port, username, auth_kind,
+                                identity_id, jump_host_id, theme, color_tag, notes, sort,
+                                agent_forward)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
              ON CONFLICT(id) DO UPDATE SET
                 group_id = ?2, label = ?3, hostname = ?4, port = ?5, username = ?6,
-                identity_id = ?7, jump_host_id = ?8, theme = ?9, color_tag = ?10,
-                notes = ?11, sort = ?12",
+                auth_kind = ?7, identity_id = ?8, jump_host_id = ?9, theme = ?10,
+                color_tag = ?11, notes = ?12, sort = ?13, agent_forward = ?14",
             params![
                 h.id,
                 h.group_id,
@@ -178,12 +183,14 @@ impl Vault {
                 h.hostname,
                 h.port,
                 h.username,
+                h.auth_kind.as_str(),
                 h.identity_id,
                 h.jump_host_id,
                 h.theme,
                 h.color_tag,
                 h.notes,
                 h.sort,
+                h.agent_forward as i64,
             ],
         )?;
         Ok(())
@@ -362,14 +369,51 @@ impl Vault {
     }
 }
 
+/// The schema version `INIT_SQL` produces. Fresh databases start here and are
+/// then walked forward by `MIGRATIONS`, exactly like an existing one — so the
+/// migration path is exercised on every clean install rather than only on
+/// upgrade, where a bug would be much harder to notice.
+const BASE_VERSION: i64 = 1;
+
+/// Brings a database up to `SCHEMA_VERSION`, applying each step in its own
+/// transaction so a failure can't leave a half-migrated vault behind.
+fn migrate(conn: &Connection) -> AppResult<()> {
+    let mut version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    version = version.max(BASE_VERSION);
+
+    if version > SCHEMA_VERSION {
+        return Err(AppError::Vault(format!(
+            "this vault was written by a newer version of Shellmux \
+             (schema v{version}, this build understands v{SCHEMA_VERSION}). \
+             Update the app rather than downgrading the vault."
+        )));
+    }
+
+    while version < SCHEMA_VERSION {
+        let step = MIGRATIONS
+            .get((version - BASE_VERSION) as usize)
+            .ok_or_else(|| {
+                AppError::Vault(format!("missing migration step for schema v{version}"))
+            })?;
+
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(step)?;
+        version += 1;
+        tx.pragma_update(None, "user_version", version)?;
+        tx.commit()?;
+
+        log::info!("vault migrated to schema v{version}");
+    }
+
+    Ok(())
+}
+
 fn map_identity(r: &Row<'_>) -> rusqlite::Result<Identity> {
     Ok(Identity {
         id: r.get(0)?,
         name: r.get(1)?,
-        auth_kind: AuthKind::from_str(&r.get::<_, String>(2)?),
-        username: r.get(3)?,
-        private_key_path: r.get(4)?,
-        has_secret: r.get::<_, i64>(5)? != 0,
+        private_key_path: r.get(2)?,
+        has_secret: r.get::<_, i64>(3)? != 0,
     })
 }
 
@@ -381,12 +425,14 @@ fn map_host(r: &Row<'_>) -> rusqlite::Result<Host> {
         hostname: r.get(3)?,
         port: r.get::<_, i64>(4)? as u16,
         username: r.get(5)?,
-        identity_id: r.get(6)?,
-        jump_host_id: r.get(7)?,
-        theme: r.get(8)?,
-        color_tag: r.get(9)?,
-        notes: r.get(10)?,
-        sort: r.get(11)?,
+        auth_kind: AuthKind::from_str(&r.get::<_, String>(6)?),
+        identity_id: r.get(7)?,
+        jump_host_id: r.get(8)?,
+        theme: r.get(9)?,
+        color_tag: r.get(10)?,
+        notes: r.get(11)?,
+        sort: r.get(12)?,
+        agent_forward: r.get::<_, i64>(13)? != 0,
     })
 }
 

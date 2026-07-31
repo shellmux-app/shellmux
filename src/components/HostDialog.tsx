@@ -1,22 +1,27 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   CaretRightIcon,
   CheckIcon,
   DesktopTowerIcon,
+  EyeIcon,
+  EyeSlashIcon,
   FolderIcon,
   GlobeIcon,
   KeyIcon,
   PlugIcon,
   PlusIcon,
   SlidersHorizontalIcon,
+  TerminalWindowIcon,
   XIcon,
 } from '@phosphor-icons/react'
 
 import { badgeColor, badgeText, PALETTE } from '../lib/badge'
+import { keyApi, vaultApi } from '../lib/ipc'
 import { THEMES } from '../lib/themes'
-import type { Host } from '../lib/types'
+import type { AuthKind, Host, KeyInfo } from '../lib/types'
 import { useDialog } from '../state/useDialog'
 import { describe, useVault } from '../state/useVault'
+import { KeyBadge } from './ui/KeyBadge'
 
 interface Props {
   host: Host | null
@@ -32,19 +37,58 @@ const EMPTY: Host = {
   hostname: '',
   port: 22,
   username: '',
+  authKind: 'agent',
   identityId: null,
   jumpHostId: null,
   theme: null,
   colorTag: null,
   notes: null,
   sort: 0,
+  agentForward: false,
 }
+
+const AUTH_CHOICES: { id: AuthKind; label: string; hint: string }[] = [
+  { id: 'agent', label: 'SSH agent', hint: 'Use whichever key your running ssh-agent holds' },
+  { id: 'key', label: 'Private key', hint: 'Use one saved key from the Keychain' },
+  { id: 'password', label: 'Password', hint: 'Stored in the macOS keychain, per host' },
+]
 
 export function HostDialog({ host, onClose, onConnect }: Props) {
   const { groups, hosts, identities, saveGroup, saveHost } = useVault()
   const { ask } = useDialog()
   const [draft, setDraft] = useState<Host>(host ?? EMPTY)
   const [error, setError] = useState<string | null>(null)
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  /** Whether a password is already saved — the value itself is never readable. */
+  const [passwordSaved, setPasswordSaved] = useState(false)
+  const [keyInfo, setKeyInfo] = useState<KeyInfo | undefined>(undefined)
+
+  const selectedKey = identities.find((i) => i.id === draft.identityId) ?? null
+
+  useEffect(() => {
+    if (!host?.id) return
+    void vaultApi.hostHasPassword(host.id).then(setPasswordSaved).catch(() => undefined)
+  }, [host?.id])
+
+  // Describe the chosen key so the user can confirm it's the right one before
+  // saving, rather than finding out at connect time.
+  useEffect(() => {
+    if (!selectedKey) {
+      setKeyInfo(undefined)
+      return
+    }
+    let cancelled = false
+    void keyApi
+      .inspect(selectedKey.privateKeyPath)
+      .then((info) => {
+        if (!cancelled) setKeyInfo(info)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [selectedKey])
 
   // A host can't be its own jump host.
   const jumpCandidates = hosts.filter((h) => h.id !== draft.id)
@@ -75,15 +119,31 @@ export function HostDialog({ host, onClose, onConnect }: Props) {
       setError('Hostname and username are required.')
       return
     }
+    if (draft.authKind === 'key' && !draft.identityId) {
+      setError('Pick which key to use, or switch to SSH agent.')
+      return
+    }
+    if (draft.authKind === 'password' && !password && !passwordSaved) {
+      setError('Enter a password, or switch to another sign-in method.')
+      return
+    }
 
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null
     const shouldConnect = submitter?.value === 'connect'
 
     try {
-      const saved = await saveHost({
-        ...draft,
-        label: draft.label.trim() || draft.hostname.trim(),
-      })
+      const saved = await saveHost(
+        {
+          ...draft,
+          label: draft.label.trim() || draft.hostname.trim(),
+          // Leave a stale key reference out of the record entirely.
+          identityId: draft.authKind === 'key' ? draft.identityId : null,
+          // A password has nothing to forward.
+          agentForward: draft.authKind === 'password' ? false : draft.agentForward,
+        },
+        // Undefined leaves any stored password untouched.
+        draft.authKind === 'password' && password ? password : undefined,
+      )
       if (shouldConnect) onConnect?.(saved.id)
       onClose()
     } catch (err) {
@@ -200,7 +260,7 @@ export function HostDialog({ host, onClose, onConnect }: Props) {
         <div className="dialog-section">
           <h3 className="dialog-section-title">
             <KeyIcon />
-            Connection
+            Sign in
           </h3>
           <label>
             Username
@@ -210,21 +270,98 @@ export function HostDialog({ host, onClose, onConnect }: Props) {
               placeholder="root"
               required
             />
+            <span className="field-hint">
+              Case-sensitive. Cloud images differ: <code>ubuntu</code>, <code>ec2-user</code>,{' '}
+              <code>root</code>.
+            </span>
           </label>
-          <label>
-            Identity
-            <select
-              value={draft.identityId ?? ''}
-              onChange={(e) => patch({ identityId: e.target.value || null })}
-            >
-              <option value="">Use ssh-agent</option>
-              {identities.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.name} ({i.authKind})
-                </option>
-              ))}
-            </select>
-          </label>
+
+          {/* Segmented rather than a dropdown: there are only three, and each
+              needs its own follow-up field right underneath. */}
+          <div className="segmented" role="group" aria-label="Authentication method">
+            {AUTH_CHOICES.map((choice) => (
+              <button
+                key={choice.id}
+                type="button"
+                className={draft.authKind === choice.id ? 'active' : ''}
+                aria-pressed={draft.authKind === choice.id}
+                title={choice.hint}
+                onClick={() => patch({ authKind: choice.id })}
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+
+          {draft.authKind === 'agent' && (
+            <p className="field-hint">
+              <TerminalWindowIcon size={13} /> Offers the keys already loaded in your ssh-agent
+              — the same ones plain <code>ssh</code> would try.
+            </p>
+          )}
+
+          {draft.authKind === 'key' && (
+            <label>
+              Key
+              <select
+                value={draft.identityId ?? ''}
+                onChange={(e) => patch({ identityId: e.target.value || null })}
+              >
+                <option value="">Choose a key…</option>
+                {identities.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.name}
+                  </option>
+                ))}
+              </select>
+              {identities.length === 0 ? (
+                <span className="field-hint">
+                  No keys saved yet — add one in Keychain, or import <code>~/.ssh/config</code>.
+                </span>
+              ) : (
+                selectedKey && <KeyBadge info={keyInfo} />
+              )}
+            </label>
+          )}
+
+          {draft.authKind === 'password' && (
+            <label>
+              Password
+              <span className="file-row">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={passwordSaved ? '••••••••  saved — type to replace' : ''}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeSlashIcon /> : <EyeIcon />}
+                </button>
+              </span>
+              <span className="field-hint">
+                Goes straight into the macOS keychain. Nothing reads it back out to this window.
+              </span>
+            </label>
+          )}
+
+          {draft.authKind !== 'password' && (
+            <label className="inline">
+              <input
+                type="checkbox"
+                checked={draft.agentForward}
+                onChange={(e) => patch({ agentForward: e.target.checked })}
+              />
+              Forward this to the host — lets it use{' '}
+              {draft.authKind === 'agent' ? 'your ssh-agent' : 'this key'} to hop onward
+            </label>
+          )}
+
           <label>
             Jump host (ProxyJump)
             <select

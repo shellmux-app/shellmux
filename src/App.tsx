@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { IconContext, SidebarSimpleIcon, XIcon } from '@phosphor-icons/react'
 
 import { HostDialog } from './components/HostDialog'
@@ -11,11 +12,12 @@ import { NavRail, type ScreenId } from './components/shell/NavRail'
 import { TunnelPanel } from './components/TunnelPanel'
 import { DialogHost } from './components/ui/DialogHost'
 import { Workspace } from './components/Workspace'
-import { onSessionClosed, startBus } from './lib/bus'
-import { sshConfigApi } from './lib/ipc'
+import { onSessionClosed, onTransferProgress, startBus } from './lib/bus'
+import { sshConfigApi, vaultApi } from './lib/ipc'
 import type { Host } from './lib/types'
 import { useDialog } from './state/useDialog'
 import { useTheme } from './state/useTheme'
+import { useTransfers } from './state/useTransfers'
 import { describe, useVault } from './state/useVault'
 import { useWorkspace } from './state/useWorkspace'
 
@@ -35,7 +37,7 @@ export default function App() {
     dismissError: dismissVaultError,
   } = useVault()
   const initTheme = useTheme((s) => s.init)
-  const confirm = useDialog((s) => s.confirm)
+  const { ask, confirm } = useDialog()
   const {
     tabs,
     activeTabId,
@@ -53,6 +55,7 @@ export default function App() {
   const [inSession, setInSession] = useState(false)
   const [overlay, setOverlay] = useState<Overlay>({ kind: 'none' })
   const [note, setNote] = useState<string | null>(null)
+  const applyTransferProgress = useTransfers((s) => s.applyProgress)
 
   useEffect(() => {
     startBus()
@@ -61,11 +64,13 @@ export default function App() {
     const stopBus = onSessionClosed((sessionId, reason, generation) =>
       markClosed(sessionId, reason, generation),
     )
+    const stopTransfers = onTransferProgress(applyTransferProgress)
     return () => {
       stopTheme()
       stopBus()
+      stopTransfers()
     }
-  }, [load, markClosed, initTheme])
+  }, [load, markClosed, initTheme, applyTransferProgress])
 
   const connect = async (hostId: string) => {
     await openSsh(hostId)
@@ -103,6 +108,71 @@ export default function App() {
     }
   }
 
+  const exportVault = async () => {
+    const target = await saveDialog({
+      defaultPath: 'shellmux-vault.smx',
+      filters: [{ name: 'Shellmux vault export', extensions: ['smx'] }],
+    })
+    if (!target) return
+
+    const passphrase = await ask({
+      title: 'Export vault',
+      label: 'Passphrase for this file',
+      hint: "Protects the file at rest. You'll need it to import it again — Shellmux doesn't store it anywhere.",
+      confirmLabel: 'Export',
+      masked: true,
+    })
+    if (!passphrase) return
+
+    try {
+      await vaultApi.export(target, passphrase)
+      setNote(
+        `Exported to ${target}. Passwords and key passphrases stay in the OS keychain and were not included.`,
+      )
+    } catch (e) {
+      setNote(describe(e))
+    }
+  }
+
+  const importVault = async () => {
+    const source = await openDialog({
+      multiple: false,
+      filters: [{ name: 'Shellmux vault export', extensions: ['smx'] }],
+    })
+    if (typeof source !== 'string') return
+
+    const passphrase = await ask({
+      title: 'Import vault',
+      label: 'Passphrase',
+      confirmLabel: 'Import',
+      masked: true,
+    })
+    if (!passphrase) return
+
+    try {
+      const summary = await vaultApi.import(source, passphrase)
+      await load()
+      const parts = [
+        `Imported ${summary.hosts} hosts, ${summary.groups} groups, ${summary.identities} keys, ` +
+          `${summary.snippets} snippets, ${summary.tunnels} tunnels. Existing records sharing an ` +
+          'id were updated in place, not duplicated.',
+      ]
+      // Never quietly swallowed: a differing fingerprint means either the
+      // host legitimately changed keys or the file is trying to re-pin it.
+      if (summary.knownHostConflicts.length > 0) {
+        parts.push(
+          `Kept your existing trusted key for ${summary.knownHostConflicts.join(', ')} — the ` +
+            'file lists a different fingerprint. Verify before trusting it.',
+        )
+      }
+      setNote(parts.join(' '))
+      setScreen('hosts')
+      setInSession(false)
+    } catch (e) {
+      setNote(describe(e))
+    }
+  }
+
   const goToScreen = (next: ScreenId) => {
     setScreen(next)
     setInSession(false)
@@ -121,6 +191,8 @@ export default function App() {
             knownHosts: knownHosts.length,
           }}
           onImport={() => void importSshConfig()}
+          onExportVault={() => void exportVault()}
+          onImportVault={() => void importVault()}
         />
 
         <main className="main">

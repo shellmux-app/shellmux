@@ -35,11 +35,13 @@ function matches(host: Host, needle: string): boolean {
  * is faster than expanding branch by branch.
  */
 export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
-  const { groups, hosts, saveGroup, deleteGroup, deleteHost } = useVault()
+  const { groups, hosts, saveGroup, saveHost, deleteGroup, deleteHost } = useVault()
   const connectingHostId = useWorkspace((s) => s.connectingHostId)
   const { ask, confirm } = useDialog()
   const [needle, setNeedle] = useState('')
   const [groupId, setGroupId] = useState<string | null>(null)
+  const [draggedHostId, setDraggedHostId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
 
   const currentGroup = groups.find((g) => g.id === groupId) ?? null
 
@@ -84,6 +86,36 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
       await deleteGroup(group.id)
       if (groupId === group.id) setGroupId(null)
     }
+  }
+
+  /** Drag a host card onto a group card to move it there, or onto "All hosts" to ungroup it. */
+  const moveHostToGroup = async (hostId: string, newGroupId: string | null) => {
+    const host = hosts.find((h) => h.id === hostId)
+    if (!host || host.groupId === newGroupId) return
+    await saveHost({ ...host, groupId: newGroupId })
+  }
+
+  /**
+   * Drag a host card onto another to reorder. `visible` is already in the
+   * backend's `ORDER BY sort, label`, so re-numbering it 0..n-1 in the new
+   * order is enough — this only touches hosts in the current filtered view,
+   * not the whole vault.
+   */
+  const reorderHost = async (draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return
+    const order = [...visible]
+    const fromIndex = order.findIndex((h) => h.id === draggedId)
+    const toIndex = order.findIndex((h) => h.id === targetId)
+    if (fromIndex === -1 || toIndex === -1) return
+
+    const [moved] = order.splice(fromIndex, 1)
+    order.splice(toIndex, 0, moved)
+
+    await Promise.all(
+      order
+        .map((h, index) => (h.sort === index ? null : saveHost({ ...h, sort: index })))
+        .filter((p): p is Promise<Host> => p !== null),
+    )
   }
 
   const removeHost = async (host: Host) => {
@@ -141,7 +173,20 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
 
       <div className="screen-body">
         {currentGroup && (
-          <div className="crumb">
+          <div
+            className={`crumb ${dropTarget === 'ungroup' ? 'is-drop-target' : ''}`}
+            onDragOver={(e) => {
+              if (!draggedHostId) return
+              e.preventDefault()
+              setDropTarget('ungroup')
+            }}
+            onDragLeave={() => setDropTarget((t) => (t === 'ungroup' ? null : t))}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDropTarget(null)
+              if (draggedHostId) void moveHostToGroup(draggedHostId, null)
+            }}
+          >
             <button className="btn-quiet" onClick={() => setGroupId(null)}>
               All hosts
             </button>
@@ -155,7 +200,21 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
             <h2 className="section-title">Groups</h2>
             <div className="card-grid">
               {groupCards.map(({ group, count }) => (
-                <div key={group.id} className="card">
+                <div
+                  key={group.id}
+                  className={`card ${dropTarget === group.id ? 'is-drop-target' : ''}`}
+                  onDragOver={(e) => {
+                    if (!draggedHostId) return
+                    e.preventDefault()
+                    setDropTarget(group.id)
+                  }}
+                  onDragLeave={() => setDropTarget((t) => (t === group.id ? null : t))}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setDropTarget(null)
+                    if (draggedHostId) void moveHostToGroup(draggedHostId, group.id)
+                  }}
+                >
                   <span
                     className="badge-square"
                     style={{ '--badge': badgeColor(group.id) } as React.CSSProperties}
@@ -192,7 +251,32 @@ export function HostsScreen({ onConnect, onEditHost, onOpenLocal }: Props) {
         {visible.length > 0 ? (
           <div className="card-grid">
             {visible.map((host) => (
-              <div key={host.id} className="card">
+              <div
+                key={host.id}
+                className={`card ${draggedHostId === host.id ? 'is-dragging' : ''} ${
+                  dropTarget === host.id ? 'is-drop-target' : ''
+                }`}
+                draggable
+                onDragStart={(e) => {
+                  setDraggedHostId(host.id)
+                  e.dataTransfer.effectAllowed = 'move'
+                }}
+                onDragEnd={() => {
+                  setDraggedHostId(null)
+                  setDropTarget(null)
+                }}
+                onDragOver={(e) => {
+                  if (!draggedHostId || draggedHostId === host.id) return
+                  e.preventDefault()
+                  setDropTarget(host.id)
+                }}
+                onDragLeave={() => setDropTarget((t) => (t === host.id ? null : t))}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setDropTarget(null)
+                  if (draggedHostId) void reorderHost(draggedHostId, host.id)
+                }}
+              >
                 <span
                   className="badge-square"
                   style={

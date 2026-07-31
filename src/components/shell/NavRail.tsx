@@ -3,9 +3,11 @@ import {
   FingerprintIcon,
   HouseIcon,
   KeyIcon,
+  LockKeyIcon,
   MoonIcon,
   SunIcon,
   TerminalWindowIcon,
+  UploadSimpleIcon,
   type Icon,
 } from '@phosphor-icons/react'
 
@@ -18,6 +20,8 @@ interface Props {
   onSelect: (screen: ScreenId) => void
   counts: Record<ScreenId, number>
   onImport: () => void
+  onExportVault: () => void
+  onImportVault: () => void
 }
 
 const ITEMS: { id: ScreenId; label: string; icon: Icon }[] = [
@@ -28,7 +32,7 @@ const ITEMS: { id: ScreenId; label: string; icon: Icon }[] = [
 ]
 
 /** Termius-style nav rail: each item is a destination, not a dialog. */
-export function NavRail({ active, onSelect, counts, onImport }: Props) {
+export function NavRail({ active, onSelect, counts, onImport, onExportVault, onImportVault }: Props) {
   const { resolved, setMode } = useTheme()
   const ThemeIcon = resolved === 'dark' ? SunIcon : MoonIcon
 
@@ -62,6 +66,14 @@ export function NavRail({ active, onSelect, counts, onImport }: Props) {
         <button className="rail-item" onClick={onImport}>
           <DownloadSimpleIcon size={18} />
           Import ~/.ssh/config
+        </button>
+        <button className="rail-item" onClick={onExportVault} title="Encrypted backup of hosts, groups, keychain metadata, snippets, and tunnels — not passwords or key passphrases">
+          <LockKeyIcon size={18} />
+          Export vault
+        </button>
+        <button className="rail-item" onClick={onImportVault}>
+          <UploadSimpleIcon size={18} />
+          Import vault
         </button>
         <button
           className="rail-item"

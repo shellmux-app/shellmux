@@ -2,7 +2,7 @@ use russh::client::{Handle, Msg};
 use russh::{Channel, Disconnect};
 use tokio::sync::Mutex;
 
-use super::handler::{ForwardRegistry, RemoteTarget, ShellmuxHandler};
+use super::handler::{AgentRequested, ForwardRegistry, RemoteTarget, ShellmuxHandler};
 use crate::error::AppResult;
 
 /// One SSH connection together with its entire chain of jump hosts above it.
@@ -19,6 +19,7 @@ pub struct SshLink {
     handle: Mutex<Handle<ShellmuxHandler>>,
     _parents: Mutex<Vec<Handle<ShellmuxHandler>>>,
     forwards: ForwardRegistry,
+    agent_requested: AgentRequested,
 }
 
 impl SshLink {
@@ -27,13 +28,23 @@ impl SshLink {
         handle: Handle<ShellmuxHandler>,
         parents: Vec<Handle<ShellmuxHandler>>,
         forwards: ForwardRegistry,
+        agent_requested: AgentRequested,
     ) -> Self {
         Self {
             host_id,
             handle: Mutex::new(handle),
             _parents: Mutex::new(parents),
             forwards,
+            agent_requested,
         }
+    }
+
+    /// Records that this connection has asked the server for agent
+    /// forwarding, which is what allows its handler to accept the
+    /// `auth-agent@openssh.com` channel the server opens back to us.
+    pub fn mark_agent_forward_requested(&self) {
+        self.agent_requested
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub async fn open_session(&self) -> AppResult<Channel<Msg>> {

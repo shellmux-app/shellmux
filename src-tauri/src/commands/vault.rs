@@ -87,19 +87,45 @@ pub fn list_hosts(state: State<'_, AppState>) -> AppResult<Vec<Host>> {
     state.vault.list_hosts()
 }
 
+/// `password` behaves like `save_identity`'s `secret`: it goes into the OS
+/// keychain keyed by the host id and is never readable back. `None` leaves any
+/// stored password untouched, so saving an unrelated edit doesn't wipe it.
 #[tauri::command]
-pub fn save_host(state: State<'_, AppState>, host: Host) -> AppResult<Host> {
-    let next = Host {
-        id: ensure_id(&host.id),
-        ..host
-    };
+pub fn save_host(
+    state: State<'_, AppState>,
+    host: Host,
+    password: Option<String>,
+) -> AppResult<Host> {
+    let id = ensure_id(&host.id);
+
+    match password {
+        Some(value) if !value.is_empty() => secrets::store_host_password(&id, &value)?,
+        Some(_) => secrets::delete_host_password(&id)?,
+        None => {}
+    }
+
+    let next = Host { id, ..host };
     state.vault.upsert_host(&next)?;
     Ok(next)
 }
 
 #[tauri::command]
 pub fn delete_host(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    // Drop the password with the host, so removing a host doesn't leave a
+    // credential behind in the keychain.
+    secrets::delete_host_password(&id)?;
     state.vault.delete_host(&id)
+}
+
+/// True when a password is stored for this host. Only ever the flag — the
+/// password itself has no path back to the frontend.
+#[tauri::command]
+pub fn host_has_password(state: State<'_, AppState>, id: String) -> AppResult<bool> {
+    // Must consult the same legacy fallback `ssh/auth.rs` uses, otherwise a
+    // host migrated from a pre-v2 vault (whose password is still keyed by
+    // the old identity id) connects fine while the UI claims it has none.
+    let legacy = state.vault.get_host(&id).ok().and_then(|h| h.identity_id);
+    Ok(secrets::load_host_password(&id, legacy.as_deref())?.is_some())
 }
 
 // ------------------------------------------------------------------ snippets
@@ -179,4 +205,26 @@ pub fn trust_host_key(
 #[tauri::command]
 pub fn forget_host_key(state: State<'_, AppState>, host: String, port: u16) -> AppResult<()> {
     state.vault.forget_known_host(&host, port)
+}
+
+// -------------------------------------------------------- encrypted export
+
+/// Writes an encrypted snapshot of the vault's data (groups, hosts,
+/// identities, snippets, tunnels, known hosts) to `path`, sealed with
+/// `passphrase`. Does not include OS-keychain secrets — see `vault/export.rs`.
+#[tauri::command]
+pub fn vault_export(state: State<'_, AppState>, path: String, passphrase: String) -> AppResult<()> {
+    let data = crate::vault::export::export_encrypted(&state.vault, &passphrase)?;
+    std::fs::write(&path, data)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn vault_import(
+    state: State<'_, AppState>,
+    path: String,
+    passphrase: String,
+) -> AppResult<crate::vault::export::ImportSummary> {
+    let data = std::fs::read(&path)?;
+    crate::vault::export::import_encrypted(&state.vault, &data, &passphrase)
 }

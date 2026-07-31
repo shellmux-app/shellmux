@@ -10,45 +10,51 @@ pub struct Group {
     pub sort: i64,
 }
 
+/// How a host proves who it is. This lives on the *host*, not on a shared
+/// credential: a password belongs to one account on one machine, whereas a key
+/// is deliberately reused across many. Keeping both in one shared object was
+/// the old design, and it forced every password through a detour and let the
+/// credential silently override the host's username.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AuthKind {
-    /// Uses the running ssh-agent (SSH_AUTH_SOCK).
+    /// Offer whatever the running ssh-agent holds (`SSH_AUTH_SOCK`).
     Agent,
-    /// Private key on disk; its passphrase (if any) lives in the keychain.
-    PrivateKey,
-    /// Password lives in the keychain.
+    /// Password for this host, stored in the OS keychain under the host id.
     Password,
+    /// A saved private key — the host's `identity_id` says which.
+    Key,
 }
 
 impl AuthKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             AuthKind::Agent => "agent",
-            AuthKind::PrivateKey => "privateKey",
             AuthKind::Password => "password",
+            AuthKind::Key => "key",
         }
     }
 
     pub fn from_str(s: &str) -> Self {
         match s {
-            "privateKey" => AuthKind::PrivateKey,
             "password" => AuthKind::Password,
+            "key" => AuthKind::Key,
             _ => AuthKind::Agent,
         }
     }
 }
 
-/// Identity is separate from host so multiple VPSes can share one key.
-/// `has_secret` is a display-only flag — the real value lives in the OS keychain.
+/// A reusable private key. Deliberately *only* a key: it carries no username,
+/// because one key is normally used with different accounts on different hosts
+/// (`ubuntu` here, `deploy` there) and an override on the credential would
+/// force a duplicate identity per host. `has_secret` means "a passphrase for
+/// this key is in the keychain" — the passphrase itself never comes back out.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Identity {
     pub id: String,
     pub name: String,
-    pub auth_kind: AuthKind,
-    pub username: Option<String>,
-    pub private_key_path: Option<String>,
+    pub private_key_path: String,
     #[serde(default)]
     pub has_secret: bool,
 }
@@ -62,6 +68,9 @@ pub struct Host {
     pub hostname: String,
     pub port: u16,
     pub username: String,
+    #[serde(default = "default_auth_kind")]
+    pub auth_kind: AuthKind,
+    /// Which saved key to use. Only meaningful when `auth_kind` is `Key`.
     pub identity_id: Option<String>,
     pub jump_host_id: Option<String>,
     pub theme: Option<String>,
@@ -69,6 +78,16 @@ pub struct Host {
     pub notes: Option<String>,
     #[serde(default)]
     pub sort: i64,
+    /// Forward this host's own auth to it: the system ssh-agent when
+    /// `auth_kind` is `Agent`, or a decrypted-in-memory copy of just this
+    /// host's key when `auth_kind` is `Key`. Off by default — anything on
+    /// the other end can ask for a signature while the channel is open.
+    #[serde(default)]
+    pub agent_forward: bool,
+}
+
+fn default_auth_kind() -> AuthKind {
+    AuthKind::Agent
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

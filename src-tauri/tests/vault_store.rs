@@ -18,12 +18,14 @@ fn host_fixture(id: &str, group_id: Option<String>) -> Host {
         hostname: "10.0.0.5".into(),
         port: 2222,
         username: "deploy".into(),
+        auth_kind: AuthKind::Agent,
         identity_id: None,
         jump_host_id: None,
         theme: None,
         color_tag: None,
         notes: None,
         sort: 0,
+        agent_forward: false,
     }
 }
 
@@ -120,9 +122,7 @@ fn identity_secret_flag_persists_without_storing_the_secret() {
     let identity = Identity {
         id: "i1".into(),
         name: "deploy key".into(),
-        auth_kind: AuthKind::PrivateKey,
-        username: Some("deploy".into()),
-        private_key_path: Some("/tmp/id_ed25519".into()),
+        private_key_path: "/tmp/id_ed25519".into(),
         has_secret: true,
     };
 
@@ -130,9 +130,97 @@ fn identity_secret_flag_persists_without_storing_the_secret() {
     let loaded = vault.get_identity("i1").unwrap();
 
     assert!(loaded.has_secret);
-    assert_eq!(loaded.auth_kind, AuthKind::PrivateKey);
     // Only the flag and the path — no field contains the secret.
-    assert_eq!(loaded.private_key_path.as_deref(), Some("/tmp/id_ed25519"));
+    assert_eq!(loaded.private_key_path, "/tmp/id_ed25519");
+}
+
+#[test]
+fn a_host_remembers_which_auth_method_it_was_saved_with() {
+    let (_dir, vault) = temp_vault();
+
+    for kind in [AuthKind::Agent, AuthKind::Password, AuthKind::Key] {
+        let host = Host {
+            auth_kind: kind,
+            ..host_fixture("h1", None)
+        };
+        vault.upsert_host(&host).unwrap();
+        assert_eq!(vault.get_host("h1").unwrap().auth_kind, kind);
+    }
+}
+
+/// A vault written before schema v2 has no `hosts.auth_kind`; opening it must
+/// add the column and infer each host's method from the identity it points at,
+/// rather than silently resetting everything to agent auth.
+#[test]
+fn opening_a_pre_v2_vault_upgrades_it_and_infers_each_hosts_auth_method() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.db");
+
+    // Arrange: build the v1 shape by hand, with one key host and one password host.
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE identities (
+                 id TEXT PRIMARY KEY, name TEXT NOT NULL, auth_kind TEXT NOT NULL,
+                 username TEXT, private_key_path TEXT,
+                 has_secret INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE hosts (
+                 id TEXT PRIMARY KEY, group_id TEXT, label TEXT NOT NULL,
+                 hostname TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22,
+                 username TEXT NOT NULL, identity_id TEXT, jump_host_id TEXT,
+                 theme TEXT, color_tag TEXT, notes TEXT,
+                 sort INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO identities VALUES
+                 ('key1', 'a key', 'privateKey', NULL, '/tmp/k', 0),
+                 ('pw1',  'a login', 'password', 'deploy', NULL, 1);
+             INSERT INTO hosts (id, label, hostname, username, identity_id) VALUES
+                 ('by-key', 'k', '10.0.0.1', 'root', 'key1'),
+                 ('by-pw',  'p', '10.0.0.2', 'root', 'pw1'),
+                 ('by-agent', 'a', '10.0.0.3', 'root', NULL);
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    }
+
+    // Act
+    let vault = Vault::open(&path).unwrap();
+
+    // Assert
+    assert_eq!(vault.schema_version().unwrap(), 3);
+    assert_eq!(vault.get_host("by-key").unwrap().auth_kind, AuthKind::Key);
+    assert_eq!(
+        vault.get_host("by-pw").unwrap().auth_kind,
+        AuthKind::Password
+    );
+    assert_eq!(
+        vault.get_host("by-agent").unwrap().auth_kind,
+        AuthKind::Agent
+    );
+
+    // The key survives as an identity; the password entry is not a key, so it
+    // no longer shows up in the keychain list.
+    let identities = vault.list_identities().unwrap();
+    assert_eq!(identities.len(), 1);
+    assert_eq!(identities[0].id, "key1");
+
+    // v2 -> v3 also ran: pre-existing hosts default to no agent forwarding.
+    assert!(!vault.get_host("by-key").unwrap().agent_forward);
+}
+
+#[test]
+fn agent_forward_roundtrips_and_defaults_to_off() {
+    let (_dir, vault) = temp_vault();
+    let host = host_fixture("h1", None);
+    assert!(!host.agent_forward);
+    vault.upsert_host(&host).unwrap();
+    assert!(!vault.get_host("h1").unwrap().agent_forward);
+
+    let with_forwarding = Host {
+        agent_forward: true,
+        ..host_fixture("h1", None)
+    };
+    vault.upsert_host(&with_forwarding).unwrap();
+    assert!(vault.get_host("h1").unwrap().agent_forward);
 }
 
 #[test]

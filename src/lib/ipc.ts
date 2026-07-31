@@ -4,6 +4,7 @@ import type {
   Group,
   Host,
   Identity,
+  KeyInfo,
   KnownHost,
   RemoteEntry,
   SessionInfo,
@@ -44,8 +45,15 @@ export const vaultApi = {
   deleteIdentity: (id: string) => invoke<void>('delete_identity', { id }),
 
   listHosts: () => invoke<Host[]>('list_hosts'),
-  saveHost: (host: Host) => invoke<Host>('save_host', { host }),
+  /**
+   * `password` follows the same one-way rule as `secret` above. Omitting it
+   * leaves any stored password alone, so editing an unrelated field on a
+   * password host doesn't silently clear its credentials.
+   */
+  saveHost: (host: Host, password?: string) =>
+    invoke<Host>('save_host', { host, password: password ?? null }),
   deleteHost: (id: string) => invoke<void>('delete_host', { id }),
+  hostHasPassword: (id: string) => invoke<boolean>('host_has_password', { id }),
 
   listSnippets: () => invoke<Snippet[]>('list_snippets'),
   saveSnippet: (snippet: Snippet) => invoke<Snippet>('save_snippet', { snippet }),
@@ -62,6 +70,31 @@ export const vaultApi = {
     invoke<void>('trust_host_key', { host, port, algo, fingerprint }),
   forgetHostKey: (host: string, port: number) =>
     invoke<void>('forget_host_key', { host, port }),
+
+  /** Does not include OS-keychain secrets — see `vault/export.rs`. */
+  export: (path: string, passphrase: string) =>
+    invoke<void>('vault_export', { path, passphrase }),
+  import: (path: string, passphrase: string) =>
+    invoke<ImportSummary>('vault_import', { path, passphrase }),
+}
+
+export interface ImportSummary {
+  groups: number
+  hosts: number
+  identities: number
+  snippets: number
+  tunnels: number
+  knownHosts: number
+  /** `host:port` whose pinned key differs from the file's — left untouched. */
+  knownHostConflicts: string[]
+}
+
+// ---------------------------------------------------------- key inspection
+
+export const keyApi = {
+  /** Describes a picked key file. Needs no passphrase and asks for none. */
+  inspect: (path: string) => invoke<KeyInfo>('inspect_key', { path }),
+  inspectMany: (paths: string[]) => invoke<KeyInfo[]>('inspect_keys', { paths }),
 }
 
 // ------------------------------------------------------------------ session
@@ -85,6 +118,9 @@ export const sessionApi = {
   reconnect: (sessionId: string, cols: number, rows: number) =>
     invoke<SessionInfo>('session_reconnect', { sessionId, cols, rows }),
   list: () => invoke<SessionInfo[]>('session_list'),
+  startLogging: (sessionId: string, path: string) =>
+    invoke<void>('session_start_logging', { sessionId, path }),
+  stopLogging: (sessionId: string) => invoke<void>('session_stop_logging', { sessionId }),
   sendSnippet: (sessionIds: string[], snippetId: string) =>
     invoke<number>('snippet_send', { sessionIds, snippetId }),
 }
@@ -100,7 +136,6 @@ export interface ImportReport {
   unresolvedJumps: string[]
   includesSkipped: number
   wildcardBlocks: number
-  agentForwardIgnored: number
 }
 
 export const sshConfigApi = {
@@ -120,10 +155,24 @@ export const sftpApi = {
     invoke<void>('sftp_rename', { sessionId, from, to }),
   remove: (sessionId: string, path: string, isDir: boolean) =>
     invoke<void>('sftp_remove', { sessionId, path, isDir }),
-  download: (sessionId: string, remote: string, local: string) =>
-    invoke<number>('sftp_download', { sessionId, remote, local }),
-  upload: (sessionId: string, local: string, remote: string) =>
-    invoke<number>('sftp_upload', { sessionId, local, remote }),
+  /**
+   * Progress arrives separately over the `sftp:transfer` event, keyed by
+   * `transferId` — this call's own return/throw is just the final result.
+   * `resume: true` continues a same-`transferId` retry from wherever the
+   * previous attempt's local/remote file left off, instead of restarting.
+   */
+  download: (sessionId: string, remote: string, local: string, transferId: string, resume: boolean) =>
+    invoke<number>('sftp_download', { sessionId, remote, local, transferId, resume }),
+  upload: (sessionId: string, local: string, remote: string, transferId: string, resume: boolean) =>
+    invoke<number>('sftp_upload', { sessionId, local, remote, transferId, resume }),
+}
+
+/** Progress only — how a transfer *ended* comes from the command's own
+ * promise, so there's a single source of truth. See `useTransfers`. */
+export interface TransferEvent {
+  transferId: string
+  bytesDone: number
+  bytesTotal: number | null
 }
 
 // ------------------------------------------------------------------- tunnel

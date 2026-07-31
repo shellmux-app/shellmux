@@ -3,8 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Open-source SSH client & terminal",
-  "license": "MIT",
+  "description": "Source-available SSH client & terminal",
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

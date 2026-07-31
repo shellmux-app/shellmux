@@ -1,6 +1,9 @@
+pub mod agent;
 pub mod commands;
 pub mod error;
 pub mod events;
+pub mod keyinfo;
+pub mod paths;
 pub mod pipe;
 pub mod session;
 pub mod sftp;
@@ -44,6 +47,7 @@ pub fn run() {
             commands::vault::list_hosts,
             commands::vault::save_host,
             commands::vault::delete_host,
+            commands::vault::host_has_password,
             commands::vault::list_snippets,
             commands::vault::save_snippet,
             commands::vault::delete_snippet,
@@ -54,6 +58,8 @@ pub fn run() {
             commands::vault::get_known_host,
             commands::vault::trust_host_key,
             commands::vault::forget_host_key,
+            commands::vault::vault_export,
+            commands::vault::vault_import,
             // session
             commands::session::ssh_connect,
             commands::session::local_open,
@@ -62,6 +68,8 @@ pub fn run() {
             commands::session::session_close,
             commands::session::session_list,
             commands::session::session_reconnect,
+            commands::session::session_start_logging,
+            commands::session::session_stop_logging,
             commands::session::snippet_send,
             // sftp
             commands::sftp::sftp_list,
@@ -71,6 +79,9 @@ pub fn run() {
             commands::sftp::sftp_remove,
             commands::sftp::sftp_download,
             commands::sftp::sftp_upload,
+            // key inspection
+            commands::keyinfo::inspect_key,
+            commands::keyinfo::inspect_keys,
             // ssh config
             commands::sshconfig::import_ssh_config,
             commands::sshconfig::ssh_config_path,

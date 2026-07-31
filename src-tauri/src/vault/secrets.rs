@@ -43,10 +43,16 @@ impl std::fmt::Debug for Secret {
     }
 }
 
-/// Keychain key: `identity:<id>` — one secret per identity
-/// (password or key passphrase, depending on `auth_kind`).
+/// Keychain account for a key's passphrase — one per identity.
 fn account_for(identity_id: &str) -> String {
     format!("identity:{identity_id}")
+}
+
+/// Keychain account for a host's password. Keyed by host rather than by a
+/// shared credential, because a password is only ever valid for one account on
+/// one machine.
+fn account_for_host(host_id: &str) -> String {
+    format!("host:{host_id}")
 }
 
 pub fn store(identity_id: &str, value: &str) -> AppResult<()> {
@@ -54,18 +60,51 @@ pub fn store(identity_id: &str, value: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// Returns `None` when no secret has been stored yet — this isn't an error,
-/// many identities (agent, passphrase-less key) simply don't need a secret.
+/// Returns `None` when no secret has been stored yet — this isn't an error;
+/// a key without a passphrase simply has none.
 pub fn load(identity_id: &str) -> AppResult<Option<Secret>> {
-    match entry(&account_for(identity_id))?.get_password() {
+    read(&account_for(identity_id))
+}
+
+pub fn delete(identity_id: &str) -> AppResult<()> {
+    remove(&account_for(identity_id))
+}
+
+pub fn store_host_password(host_id: &str, value: &str) -> AppResult<()> {
+    entry(&account_for_host(host_id))?.set_password(value)?;
+    Ok(())
+}
+
+/// Reads a host's password. `legacy_identity_id` covers vaults written before
+/// schema v2, where a password was attached through a shared identity and so
+/// still lives under that identity's account — re-saving the host moves it.
+pub fn load_host_password(
+    host_id: &str,
+    legacy_identity_id: Option<&str>,
+) -> AppResult<Option<Secret>> {
+    if let Some(found) = read(&account_for_host(host_id))? {
+        return Ok(Some(found));
+    }
+    match legacy_identity_id {
+        Some(id) => read(&account_for(id)),
+        None => Ok(None),
+    }
+}
+
+pub fn delete_host_password(host_id: &str) -> AppResult<()> {
+    remove(&account_for_host(host_id))
+}
+
+fn read(account: &str) -> AppResult<Option<Secret>> {
+    match entry(account)?.get_password() {
         Ok(v) => Ok(Some(Secret(v))),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.into()),
     }
 }
 
-pub fn delete(identity_id: &str) -> AppResult<()> {
-    match entry(&account_for(identity_id))?.delete_credential() {
+fn remove(account: &str) -> AppResult<()> {
+    match entry(account)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e.into()),
     }

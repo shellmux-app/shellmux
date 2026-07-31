@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use russh_sftp::client::SftpSession;
+use russh_sftp::protocol::OpenFlags;
 use serde::Serialize;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::error::{AppError, AppResult};
 use crate::ssh::SshLink;
@@ -130,22 +131,70 @@ pub async fn remove(sftp: &SftpSession, path: &str, is_dir: bool) -> AppResult<(
 
 /// Remote → local, streamed in chunks so large files don't eat up all the RAM.
 pub async fn download(sftp: &SftpSession, remote: &str, local: &str) -> AppResult<u64> {
+    download_resumable(sftp, remote, local, false, |_, _| {}).await
+}
+
+/// Same as [`download`], but reports progress after every chunk and, when
+/// `resume` is set, picks up where a previous attempt at the same `local`
+/// path left off instead of starting over.
+///
+/// Resuming trusts that `local`'s current length really is a prefix of the
+/// remote file — true for "the last attempt got cut off mid-transfer", not
+/// guaranteed if the remote file changed since. Good enough for retrying a
+/// dropped connection, not a substitute for checksums.
+pub async fn download_resumable<F>(
+    sftp: &SftpSession,
+    remote: &str,
+    local: &str,
+    resume: bool,
+    mut on_progress: F,
+) -> AppResult<u64>
+where
+    F: FnMut(u64, Option<u64>),
+{
     validate_remote(remote)?;
     let mut src = sftp.open(remote).await?;
-    let mut dst = tokio::fs::File::create(local).await?;
+    let total = src.metadata().await.ok().and_then(|m| m.size);
+
+    // Resuming is only safe while the local partial is a strict prefix of the
+    // remote file. If it's already as long — or longer, because the remote was
+    // rotated or replaced since the failed attempt — seeking there would read
+    // 0 bytes and report a "successful" transfer of stale data. Start over
+    // instead; a redundant re-download beats silently keeping the wrong file.
+    let existing_len = if resume {
+        tokio::fs::metadata(local).await.map(|m| m.len()).unwrap_or(0)
+    } else {
+        0
+    };
+    let resumable = resume && existing_len > 0 && total.is_some_and(|t| existing_len < t);
+
+    let mut start = 0u64;
+    let mut dst = if resumable {
+        let existing = tokio::fs::OpenOptions::new().append(true).open(local).await?;
+        start = existing_len;
+        existing
+    } else {
+        tokio::fs::File::create(local).await?
+    };
+
+    if start > 0 {
+        src.seek(std::io::SeekFrom::Start(start)).await?;
+    }
 
     let mut buf = vec![0u8; COPY_CHUNK];
-    let mut total = 0u64;
+    let mut done = start;
+    on_progress(done, total);
     loop {
         let n = src.read(&mut buf).await?;
         if n == 0 {
             break;
         }
         dst.write_all(&buf[..n]).await?;
-        total += n as u64;
+        done += n as u64;
+        on_progress(done, total);
     }
     dst.flush().await?;
-    Ok(total)
+    Ok(done)
 }
 
 #[cfg(test)]
@@ -183,20 +232,66 @@ mod tests {
 
 /// Local → remote.
 pub async fn upload(sftp: &SftpSession, local: &str, remote: &str) -> AppResult<u64> {
+    upload_resumable(sftp, local, remote, false, |_, _| {}).await
+}
+
+/// Same as [`upload`], but reports progress after every chunk and, when
+/// `resume` is set, continues an existing remote file from its current
+/// length instead of truncating it — see [`download_resumable`] for the
+/// same trust caveat, mirrored here on the remote side.
+pub async fn upload_resumable<F>(
+    sftp: &SftpSession,
+    local: &str,
+    remote: &str,
+    resume: bool,
+    mut on_progress: F,
+) -> AppResult<u64>
+where
+    F: FnMut(u64, Option<u64>),
+{
     validate_remote(remote)?;
     let mut src = tokio::fs::File::open(local).await?;
-    let mut dst = sftp.create(remote).await?;
+    let total = src.metadata().await.map(|m| m.len())?;
+
+    // Mirror of the guard in `download_resumable`: only resume while what's
+    // already on the remote is a strict prefix of the local file. `create`
+    // truncates, so falling back to it also clears any stale tail — which
+    // `OpenFlags::WRITE` alone would leave in place.
+    let remote_len = if resume {
+        match sftp.open_with_flags(remote, OpenFlags::WRITE).await {
+            Ok(existing) => existing.metadata().await.ok().and_then(|m| m.size).unwrap_or(0),
+            Err(_) => 0,
+        }
+    } else {
+        0
+    };
+    let resumable = resume && remote_len > 0 && remote_len < total;
+
+    let mut start = 0u64;
+    let mut dst = if resumable {
+        start = remote_len;
+        sftp.open_with_flags(remote, OpenFlags::WRITE).await?
+    } else {
+        sftp.create(remote).await?
+    };
+
+    if start > 0 {
+        src.seek(std::io::SeekFrom::Start(start)).await?;
+        dst.seek(std::io::SeekFrom::Start(start)).await?;
+    }
 
     let mut buf = vec![0u8; COPY_CHUNK];
-    let mut total = 0u64;
+    let mut done = start;
+    on_progress(done, Some(total));
     loop {
         let n = src.read(&mut buf).await?;
         if n == 0 {
             break;
         }
         dst.write_all(&buf[..n]).await?;
-        total += n as u64;
+        done += n as u64;
+        on_progress(done, Some(total));
     }
     dst.flush().await?;
-    Ok(total)
+    Ok(done)
 }

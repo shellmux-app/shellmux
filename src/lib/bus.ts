@@ -22,9 +22,16 @@ interface TunnelEvent {
   message: string | null
 }
 
+interface TransferEvent {
+  transferId: string
+  bytesDone: number
+  bytesTotal: number | null
+}
+
 type Writer = (bytes: Uint8Array) => void
 type CloseHandler = (sessionId: string, reason: string, generation: number) => void
 type TunnelHandler = (event: TunnelEvent) => void
+type TransferHandler = (event: TransferEvent) => void
 
 /**
  * A single listener for the whole app that then routes by sessionId. Each terminal
@@ -34,6 +41,7 @@ type TunnelHandler = (event: TunnelEvent) => void
 const writers = new Map<string, Writer>()
 const closeHandlers = new Set<CloseHandler>()
 const tunnelHandlers = new Set<TunnelHandler>()
+const transferHandlers = new Set<TransferHandler>()
 
 let started = false
 
@@ -59,6 +67,10 @@ export function startBus(): void {
   void listen<TunnelEvent>('tunnel:state', (event) => {
     tunnelHandlers.forEach((handler) => handler(event.payload))
   })
+
+  void listen<TransferEvent>('sftp:transfer', (event) => {
+    transferHandlers.forEach((handler) => handler(event.payload))
+  })
 }
 
 export function attachWriter(sessionId: string, writer: Writer): () => void {
@@ -76,4 +88,9 @@ export function onSessionClosed(handler: CloseHandler): () => void {
 export function onTunnelState(handler: TunnelHandler): () => void {
   tunnelHandlers.add(handler)
   return () => tunnelHandlers.delete(handler)
+}
+
+export function onTransferProgress(handler: TransferHandler): () => void {
+  transferHandlers.add(handler)
+  return () => transferHandlers.delete(handler)
 }

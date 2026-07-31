@@ -5,6 +5,7 @@ import {
   ArrowRightIcon,
   ArrowUpIcon,
   CircleNotchIcon,
+  ClockCounterClockwiseIcon,
   DownloadSimpleIcon,
   FolderPlusIcon,
   PencilSimpleIcon,
@@ -15,7 +16,9 @@ import {
 import { sftpApi } from '../lib/ipc'
 import type { RemoteEntry } from '../lib/types'
 import { useDialog } from '../state/useDialog'
+import { useTransfers } from '../state/useTransfers'
 import { describe } from '../state/useVault'
+import { TransferQueue } from './TransferQueue'
 
 interface Props {
   sessionId: string
@@ -70,11 +73,16 @@ export function SftpPanel({ sessionId }: Props) {
   const [selected, setSelected] = useState<string | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
   const [loading, setLoading] = useState(true)
-  /** Key of the transfer/mutation currently in flight (e.g. `download:/etc/hosts`),
-   * or null. Uploads and downloads used to give zero feedback until they finished —
-   * this drives a spinner + disables the other mutating actions while one runs,
-   * since they share the session's single SFTP channel. */
+  const [queueOpen, setQueueOpen] = useState(false)
+  /** Key of the mutation currently in flight (e.g. `rename:/etc/hosts`), or
+   * null. Uploads/downloads go through the transfer queue instead — see
+   * `enqueueDownload`/`enqueueUpload` — so only quick metadata ops (mkdir,
+   * rename, delete) still block on this. */
   const [busyAction, setBusyAction] = useState<string | null>(null)
+  const enqueueTransfer = useTransfers((s) => s.enqueue)
+  const transferCount = useTransfers(
+    (s) => s.items.filter((t) => t.status === 'active' || t.status === 'queued').length,
+  )
 
   const refresh = useCallback(
     async (target: string) => {
@@ -117,25 +125,30 @@ export function SftpPanel({ sessionId }: Props) {
   const download = async (entry: RemoteEntry) => {
     const target = await saveDialog({ defaultPath: entry.name })
     if (!target) return
-    setBusyAction(`download:${entry.path}`)
-    try {
-      const bytes = await sftpApi.download(sessionId, entry.path, target)
-      setStatus({ text: `Downloaded ${formatSize(bytes)} to ${target}`, isError: false })
-    } catch (e) {
-      setStatus({ text: describe(e), isError: true })
-    } finally {
-      setBusyAction(null)
-    }
+    enqueueTransfer({
+      id: crypto.randomUUID(),
+      sessionId,
+      direction: 'download',
+      label: entry.name,
+      localPath: target,
+      remotePath: entry.path,
+    })
+    setStatus({ text: `Queued download of ${entry.name} — see Transfers`, isError: false })
   }
 
   const upload = async () => {
     const picked = await openDialog({ multiple: false })
     if (typeof picked !== 'string') return
     const name = picked.split('/').pop() ?? 'upload.bin'
-    await run('upload', async () => {
-      const bytes = await sftpApi.upload(sessionId, picked, `${path}/${name}`)
-      return `Uploaded ${name} (${formatSize(bytes)})`
+    enqueueTransfer({
+      id: crypto.randomUUID(),
+      sessionId,
+      direction: 'upload',
+      label: name,
+      localPath: picked,
+      remotePath: `${path}/${name}`,
     })
+    setStatus({ text: `Queued upload of ${name} — see Transfers`, isError: false })
   }
 
   const mkdir = async () => {
@@ -213,11 +226,18 @@ export function SftpPanel({ sessionId }: Props) {
           {busyAction === 'mkdir' ? <CircleNotchIcon className="spin" /> : <FolderPlusIcon />}
           New folder
         </button>
-        <button className="btn-primary" onClick={() => void upload()} disabled={busyAction !== null}>
-          {busyAction === 'upload' ? <CircleNotchIcon className="spin" /> : <UploadSimpleIcon />}
-          {busyAction === 'upload' ? 'Uploading…' : 'Upload'}
+        <button className="btn-outline" onClick={() => setQueueOpen(true)}>
+          <ClockCounterClockwiseIcon />
+          Transfers
+          {transferCount > 0 && <span className="badge">{transferCount}</span>}
+        </button>
+        <button className="btn-primary" onClick={() => void upload()}>
+          <UploadSimpleIcon />
+          Upload
         </button>
       </header>
+
+      {queueOpen && <TransferQueue onClose={() => setQueueOpen(false)} />}
 
       <div className="sftp-list">
         {loading && entries.length === 0 ? (
@@ -267,17 +287,9 @@ export function SftpPanel({ sessionId }: Props) {
                           Open
                         </button>
                       ) : (
-                        <button
-                          className="btn-quiet"
-                          onClick={() => void download(entry)}
-                          disabled={busyAction !== null}
-                        >
-                          {busyAction === `download:${entry.path}` ? (
-                            <CircleNotchIcon className="spin" />
-                          ) : (
-                            <DownloadSimpleIcon />
-                          )}
-                          {busyAction === `download:${entry.path}` ? 'Downloading…' : 'Download'}
+                        <button className="btn-quiet" onClick={() => void download(entry)}>
+                          <DownloadSimpleIcon />
+                          Download
                         </button>
                       )}
                       <button

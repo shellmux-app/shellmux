@@ -1,0 +1,59 @@
+name: ci
+
+# Runs on every push/PR against main, on all 3 target OSes — unlike
+# release.yml (which only builds on a version tag), this is what actually
+# catches "compiles fine on macOS, breaks on Windows/Linux" before a release,
+# without paying for a full signed/bundled build on every commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-22.04, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # WebKitGTK is Tauri's webview on Linux; the Rust build needs its
+      # headers even just to type-check, not only to bundle.
+      - name: Install system dependencies (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            patchelf build-essential curl wget file libxdo-dev libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck + vitest
+        run: pnpm typecheck && pnpm test
+
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+
+      - name: cargo build (debug — catches target-specific compile errors fast)
+        run: cargo build --manifest-path src-tauri/Cargo.toml

@@ -2,6 +2,7 @@ use serde::Serialize;
 
 use super::parse::{first_jump_target, parse, SshConfigHost};
 use crate::error::AppResult;
+use crate::paths::home_dir;
 use crate::vault::{AuthKind, Group, Host, Identity, Vault};
 
 /// The id is fixed by alias, so importing a second time *updates* rather than
@@ -28,8 +29,6 @@ pub struct ImportReport {
     pub unresolved_jumps: Vec<String>,
     pub includes_skipped: usize,
     pub wildcard_blocks: usize,
-    /// Host declares `ForwardAgent yes` — Shellmux doesn't support agent forwarding yet.
-    pub agent_forward_ignored: usize,
 }
 
 pub fn import_into(vault: &Vault, text: &str) -> AppResult<ImportReport> {
@@ -65,18 +64,22 @@ pub fn import_into(vault: &Vault, text: &str) -> AppResult<ImportReport> {
             hostname: entry.hostname.clone(),
             port: entry.port.unwrap_or(22),
             username: entry.user.clone().unwrap_or_else(default_user),
+            // `IdentityFile` in the config means key auth; without one, ssh
+            // falls back to the agent, so mirror that.
+            auth_kind: if identity.is_some() {
+                AuthKind::Key
+            } else {
+                AuthKind::Agent
+            },
             identity_id: identity,
             jump_host_id: jump,
             theme: None,
             color_tag: None,
             notes: Some(format!("Imported from ~/.ssh/config (Host {})", entry.alias)),
             sort: index as i64,
+            agent_forward: entry.forward_agent,
         })?;
         report.hosts += 1;
-
-        if entry.forward_agent {
-            report.agent_forward_ignored += 1;
-        }
     }
 
     report.identities = seen_keys.len();
@@ -104,9 +107,7 @@ fn ensure_identity(
         vault.upsert_identity(&Identity {
             id: id.clone(),
             name,
-            auth_kind: AuthKind::PrivateKey,
-            username: None,
-            private_key_path: Some(path.clone()),
+            private_key_path: path.clone(),
             // If the key has a passphrase, the user enters it later; import doesn't read the key.
             has_secret: false,
         })?;
@@ -142,7 +143,5 @@ fn default_user() -> String {
 }
 
 pub fn default_config_path() -> Option<std::path::PathBuf> {
-    std::env::var("HOME")
-        .ok()
-        .map(|home| std::path::PathBuf::from(home).join(".ssh").join("config"))
+    home_dir().map(|home| std::path::PathBuf::from(home).join(".ssh").join("config"))
 }

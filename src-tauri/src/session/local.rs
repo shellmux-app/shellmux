@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -14,8 +15,8 @@ const READ_CHUNK: usize = 32 * 1024;
 
 /// Local shell tab. `portable-pty` is a blocking API, so each session uses two
 /// real threads instead of async tasks: one for reading, one for writing + resize.
-pub fn start(
-    app: AppHandle,
+pub fn start<R: tauri::Runtime>(
+    app: AppHandle<R>,
     session_id: String,
     generation: u64,
     shell: Option<String>,
@@ -58,9 +59,14 @@ pub fn start(
 
     let (tx, mut rx) = mpsc::channel::<Outbound>(OUTBOUND_BUFFER);
 
+    // Shared with the writer thread, which owns start/stop; the reader thread
+    // only ever reads it, once per chunk, to decide whether to also append to it.
+    let log_file: Arc<Mutex<Option<std::fs::File>>> = Arc::new(Mutex::new(None));
+
     // Reader thread: PTY → event.
     let reader_app = app.clone();
     let reader_id = session_id.clone();
+    let reader_log = log_file.clone();
     std::thread::spawn(move || {
         let engine = base64::engine::general_purpose::STANDARD;
         let mut buf = vec![0u8; READ_CHUNK];
@@ -75,6 +81,14 @@ pub fn start(
                             data: engine.encode(&buf[..n]),
                         },
                     );
+                    if let Ok(mut guard) = reader_log.lock() {
+                        if let Some(file) = guard.as_mut() {
+                            if file.write_all(&buf[..n]).is_err() {
+                                log::warn!("session {reader_id}: log write failed, stopping logging");
+                                *guard = None;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -93,6 +107,7 @@ pub fn start(
     });
 
     // Writer thread: holds both the writer and master to handle input and resize.
+    let writer_id = session_id.clone();
     std::thread::spawn(move || {
         while let Some(outbound) = rx.blocking_recv() {
             match outbound {
@@ -109,6 +124,15 @@ pub fn start(
                         pixel_width: 0,
                         pixel_height: 0,
                     });
+                }
+                Outbound::StartLogging(path) => match std::fs::File::create(&path) {
+                    Ok(file) => *log_file.lock().unwrap() = Some(file),
+                    Err(e) => log::warn!("session {writer_id}: could not open log file {path}: {e}"),
+                },
+                Outbound::StopLogging => {
+                    if let Some(mut file) = log_file.lock().unwrap().take() {
+                        let _ = file.flush();
+                    }
                 }
                 Outbound::Close => break,
             }

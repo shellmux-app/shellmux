@@ -11,6 +11,9 @@ import '@xterm/xterm/css/xterm.css'
 import { attachWriter } from '../lib/bus'
 import { sessionApi } from '../lib/ipc'
 import { themeById } from '../lib/themes'
+import { applyToLineBuffer, mayRecordInHistory } from '../lib/lineBuffer'
+import { useHistory } from '../state/useHistory'
+import { HistorySearch } from './HistorySearch'
 
 interface Props {
   sessionId: string
@@ -37,6 +40,8 @@ export function TerminalView({
   const searchRef = useRef<SearchAddon | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [historySearch, setHistorySearch] = useState<{ initialQuery: string } | null>(null)
+  const recordHistory = useHistory((s) => s.record)
 
   // Ref instead of dependency: the terminal is only built once per session, and
   // the onData handler must always see the latest state without being recreated.
@@ -44,6 +49,9 @@ export function TerminalView({
   const onReconnectRef = useRef(onReconnect)
   onReconnectRef.current = onReconnect
   closedRef.current = closedReason !== null
+
+  // See `lib/lineBuffer.ts` for what this tracks and its known limitation.
+  const lineBufferRef = useRef('')
 
   useEffect(() => {
     const container = hostRef.current
@@ -84,6 +92,20 @@ export function TerminalView({
     fitRef.current = fit
     searchRef.current = search
 
+    const trackLineBuffer = (data: string) => {
+      const result = applyToLineBuffer(lineBufferRef.current, data)
+      if (result.kind === 'submit') {
+        // Only remember it if the terminal actually displayed it — see
+        // `mayRecordInHistory` for why this keeps passwords out of history.
+        const buf = term.buffer.active
+        const visibleLine = buf.getLine(buf.cursorY)?.translateToString(true) ?? ''
+        if (mayRecordInHistory(result.command, visibleLine)) recordHistory(result.command)
+        lineBufferRef.current = ''
+      } else {
+        lineBufferRef.current = result.buffer
+      }
+    }
+
     const encoder = new TextEncoder()
     const dataSub = term.onData((data) => {
       // Once the session has died, any keypress means "reconnect" rather than
@@ -92,12 +114,32 @@ export function TerminalView({
         onReconnectRef.current(term.cols, term.rows)
         return
       }
+      trackLineBuffer(data)
       void sessionApi.write(sessionId, encoder.encode(data))
     })
     const binarySub = term.onBinary((data) => {
       const bytes = new Uint8Array(data.length)
       for (let i = 0; i < data.length; i += 1) bytes[i] = data.charCodeAt(i) & 0xff
       void sessionApi.write(sessionId, bytes)
+    })
+
+    // Must go through xterm's own hook, not a window listener: xterm handles
+    // keydown on its hidden textarea and calls preventDefault +
+    // stopPropagation, so a window-level listener never sees Ctrl+R — and by
+    // then xterm has already sent \x12 to the remote, putting the *server's*
+    // shell into reverse-search instead of opening this overlay. Returning
+    // false here swallows the key before either happens.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown' || !e.ctrlKey || e.metaKey || e.altKey) return true
+      if (e.key === 'r') {
+        setHistorySearch({ initialQuery: lineBufferRef.current })
+        return false
+      }
+      if (e.key === 'f') {
+        setSearchOpen(true)
+        return false
+      }
+      return true
     })
 
     const detach = attachWriter(sessionId, (bytes) => term.write(bytes))
@@ -139,9 +181,13 @@ export function TerminalView({
     )
   }, [closedReason])
 
+  // Ctrl+F / Ctrl+R are handled inside xterm (see attachCustomKeyEventHandler
+  // above). This covers the two cases that never reach it: Cmd+F, which macOS
+  // delivers with no `key` for xterm to cancel, and Escape while the search
+  // bar has focus rather than the terminal.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'f' && focused) {
+      if (e.metaKey && e.key === 'f' && focused) {
         e.preventDefault()
         setSearchOpen(true)
       }
@@ -155,8 +201,29 @@ export function TerminalView({
     return () => window.removeEventListener('keydown', onKey)
   }, [focused, searchOpen])
 
+  /** Erases whatever's on the current line (as far as `lineBufferRef` knows
+   * about it) and types `command` in its place — mirrors bash's own Ctrl+R:
+   * puts the command on the line, doesn't press Enter for you. */
+  const applyHistorySelection = (command: string) => {
+    const backspaces = '\x7f'.repeat(lineBufferRef.current.length)
+    const encoder = new TextEncoder()
+    void sessionApi.write(sessionId, encoder.encode(backspaces + command))
+    lineBufferRef.current = command
+    termRef.current?.focus()
+  }
+
   return (
     <div className="term-wrap">
+      {historySearch && (
+        <HistorySearch
+          initialQuery={historySearch.initialQuery}
+          onSelect={applyHistorySelection}
+          onClose={() => {
+            setHistorySearch(null)
+            termRef.current?.focus()
+          }}
+        />
+      )}
       {searchOpen && (
         <form
           className="term-search"

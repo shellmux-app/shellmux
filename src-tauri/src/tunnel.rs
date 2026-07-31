@@ -57,9 +57,9 @@ impl TunnelRegistry {
     }
 
     /// Returns the actual port in use — with `bind_port = 0` the server/OS picks it.
-    pub async fn start(
+    pub async fn start<R: tauri::Runtime>(
         &self,
-        app: AppHandle,
+        app: AppHandle<R>,
         session_id: &str,
         link: Arc<SshLink>,
         spec: &TunnelSpec,
@@ -102,9 +102,9 @@ impl TunnelRegistry {
         Ok(port)
     }
 
-    async fn start_listener(
+    async fn start_listener<R: tauri::Runtime>(
         &self,
-        app: AppHandle,
+        app: AppHandle<R>,
         session_id: &str,
         link: Arc<SshLink>,
         spec: &TunnelSpec,
@@ -192,7 +192,12 @@ impl TunnelRegistry {
         Ok(port)
     }
 
-    pub async fn stop(&self, app: &AppHandle, session_id: &str, tunnel_id: &str) -> AppResult<()> {
+    pub async fn stop<R: tauri::Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        session_id: &str,
+        tunnel_id: &str,
+    ) -> AppResult<()> {
         let Some((_, running)) = self.running.remove(tunnel_id) else {
             return Err(AppError::Tunnel("tunnel is not running".into()));
         };
@@ -214,15 +219,15 @@ impl TunnelRegistry {
 
     /// Cleans up every tunnel belonging to a session when that session
     /// closes — and only that session's.
-    pub async fn stop_for_session(&self, app: &AppHandle, session_id: &str) {
+    pub async fn stop_for_session<R: tauri::Runtime>(&self, app: &AppHandle<R>, session_id: &str) {
         for id in self.ids_for_session(session_id) {
             let _ = self.stop(app, session_id, &id).await;
         }
     }
 }
 
-fn emit_state(
-    app: &AppHandle,
+fn emit_state<R: tauri::Runtime>(
+    app: &AppHandle<R>,
     tunnel_id: &str,
     session_id: &str,
     active: bool,
